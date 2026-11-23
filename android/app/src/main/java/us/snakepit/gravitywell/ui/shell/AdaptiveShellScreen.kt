@@ -38,6 +38,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -337,50 +338,52 @@ private fun BoundConsoleOrQuickAttachPane(
     }
 
     val st by consoleCtrl.state.collectAsState()
-    SessionConsoleScreen(
-        state = st,
-        showBackButton = showBackButton,
-        onBack = onBack,
-        onRenameTitleClick = consoleCtrl::openRenameDialog,
-        onUpdateRenameDraft = consoleCtrl::updateRenameDraft,
-        onDismissRename = consoleCtrl::dismissRenameDialog,
-        onSubmitRename = consoleCtrl::submitRenameSession,
-        onCancelTurn = consoleCtrl::cancelActiveTurn,
-        onOpenConfigSheet = { consoleCtrl.setShowConfigSheet(true) },
-        onDismissConfigSheet = { consoleCtrl.setShowConfigSheet(false) },
-        onUpdateLiveConfig = consoleCtrl::updateLiveConfig,
-        onOpenArtifacts = consoleCtrl::openArtifactsSheet,
-        onDismissArtifacts = consoleCtrl::closeArtifactsSheet,
-        onSelectArtifact = consoleCtrl::openArtifactItem,
-        onBackToArtifactList = consoleCtrl::clearSelectedArtifact,
-        onOpenWorkspaceRules = consoleCtrl::openWorkspaceRulesSheet,
-        onDismissWorkspaceRules = consoleCtrl::closeWorkspaceRulesSheet,
-        onRevokeWorkspaceRule = consoleCtrl::revokeWorkspaceRule,
-        onCloseSession = { consoleCtrl.closeSession(onClosed = onSessionClosed) },
-        onToggleThought = consoleCtrl::toggleThoughtExpanded,
-        onToggleToolGutter = consoleCtrl::toggleToolExpanded,
-        onExpandSwarmTool = consoleCtrl::expandToolAndFocus,
-        onSetToolDiffMode = consoleCtrl::setToolDiffMode,
-        onResolvePermission = consoleCtrl::resolvePermission,
-        onUpdateQuestionAnswer = consoleCtrl::updateQuestionDraftAnswer,
-        onResolveQuestion = consoleCtrl::resolveQuestion,
-        onResumeQueue = consoleCtrl::resumePausedQueue,
-        onStartEditQueueItem = { q -> consoleCtrl.startEditingQueueItem(q.itemId, q.text) },
-        onUpdateEditQueueText = consoleCtrl::updateEditingQueueText,
-        onSaveEditQueueItem = consoleCtrl::saveEditedQueueItem,
-        onCancelEditQueueItem = consoleCtrl::cancelEditingQueueItem,
-        onDeleteQueueItem = consoleCtrl::deleteQueueItem,
-        onSendQueueItemNow = { itemId -> consoleCtrl.sendQueueItemNow(itemId, interrupt = true) },
-        onDraftChange = consoleCtrl::updateDraft,
-        onAttachBytes = consoleCtrl::attachFileBytes,
-        onRejectOversizedAttachment = consoleCtrl::rejectOversizedAttachment,
-        onRemoveAttachment = consoleCtrl::removeAttachment,
-        onToggleSlashBar = consoleCtrl::toggleSlashCommandChips,
-        onSelectSlashCommand = consoleCtrl::selectSlashCommandChip,
-        onSelectAtFile = consoleCtrl::selectAtFileCandidate,
-        onSubmitPrompt = consoleCtrl::submitComposerPrompt,
-        onDismissErrorBanner = consoleCtrl::dismissErrorBanner,
-    )
+    key(st.session.sessionId) {
+        SessionConsoleScreen(
+            state = st,
+            showBackButton = showBackButton,
+            onBack = onBack,
+            onRenameTitleClick = consoleCtrl::openRenameDialog,
+            onUpdateRenameDraft = consoleCtrl::updateRenameDraft,
+            onDismissRename = consoleCtrl::dismissRenameDialog,
+            onSubmitRename = consoleCtrl::submitRenameSession,
+            onCancelTurn = consoleCtrl::cancelActiveTurn,
+            onOpenConfigSheet = { consoleCtrl.setShowConfigSheet(true) },
+            onDismissConfigSheet = { consoleCtrl.setShowConfigSheet(false) },
+            onUpdateLiveConfig = consoleCtrl::updateLiveConfig,
+            onOpenArtifacts = consoleCtrl::openArtifactsSheet,
+            onDismissArtifacts = consoleCtrl::closeArtifactsSheet,
+            onSelectArtifact = consoleCtrl::openArtifactItem,
+            onBackToArtifactList = consoleCtrl::clearSelectedArtifact,
+            onOpenWorkspaceRules = consoleCtrl::openWorkspaceRulesSheet,
+            onDismissWorkspaceRules = consoleCtrl::closeWorkspaceRulesSheet,
+            onRevokeWorkspaceRule = consoleCtrl::revokeWorkspaceRule,
+            onCloseSession = { consoleCtrl.closeSession(onClosed = onSessionClosed) },
+            onToggleThought = consoleCtrl::toggleThoughtExpanded,
+            onToggleToolGutter = consoleCtrl::toggleToolExpanded,
+            onExpandSwarmTool = consoleCtrl::expandToolAndFocus,
+            onSetToolDiffMode = consoleCtrl::setToolDiffMode,
+            onResolvePermission = consoleCtrl::resolvePermission,
+            onUpdateQuestionAnswer = consoleCtrl::updateQuestionDraftAnswer,
+            onResolveQuestion = consoleCtrl::resolveQuestion,
+            onResumeQueue = consoleCtrl::resumePausedQueue,
+            onStartEditQueueItem = { q -> consoleCtrl.startEditingQueueItem(q.itemId, q.text) },
+            onUpdateEditQueueText = consoleCtrl::updateEditingQueueText,
+            onSaveEditQueueItem = consoleCtrl::saveEditedQueueItem,
+            onCancelEditQueueItem = consoleCtrl::cancelEditingQueueItem,
+            onDeleteQueueItem = consoleCtrl::deleteQueueItem,
+            onSendQueueItemNow = { itemId -> consoleCtrl.sendQueueItemNow(itemId, interrupt = true) },
+            onDraftChange = consoleCtrl::updateDraft,
+            onAttachBytes = consoleCtrl::attachFileBytes,
+            onRejectOversizedAttachment = consoleCtrl::rejectOversizedAttachment,
+            onRemoveAttachment = consoleCtrl::removeAttachment,
+            onToggleSlashBar = consoleCtrl::toggleSlashCommandChips,
+            onSelectSlashCommand = consoleCtrl::selectSlashCommandChip,
+            onSelectAtFile = consoleCtrl::selectAtFileCandidate,
+            onSubmitPrompt = consoleCtrl::submitComposerPrompt,
+            onDismissErrorBanner = consoleCtrl::dismissErrorBanner,
+        )
+    }
 }
 
 // ── Vernier Rig NavigationBar (<600dp) & NavigationRail (>=600dp) ───────────

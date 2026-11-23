@@ -230,7 +230,7 @@ class HostOnboardingController(
                 defaultCwd = report.info?.defaultCwd?.ifBlank { null },
                 agyVersion = agyVer,
                 capabilitiesJson = capabilitiesJson,
-                lastCursor = maxOf(existing?.lastCursor ?: 0L, report.hello?.latestCursor ?: 0L),
+                lastCursor = report.hello?.latestCursor ?: existing?.lastCursor ?: 0L,
                 isActive = true,
                 createdAt = existing?.createdAt ?: now,
                 lastVerifiedAt = now,

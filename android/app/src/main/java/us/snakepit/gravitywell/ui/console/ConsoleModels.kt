@@ -246,8 +246,12 @@ object QuestionSchemaParser {
     ): Boolean {
         for (field in fields) {
             if (!field.required) continue
-            val raw = draftAnswers[field.key]?.trim().orEmpty()
+            val raw = draftAnswers[field.key]?.trim()?.ifEmpty { null }
+                ?: if (field is QuestionFieldSpec.BooleanField) field.defaultValue.toString() else ""
             if (raw.isEmpty()) return false
+            if (field is QuestionFieldSpec.BooleanField && raw.toBooleanStrictOrNull() == null) {
+                return false
+            }
             if (field is QuestionFieldSpec.TextField && field.integerOnly && raw.toLongOrNull() == null) {
                 return false
             }

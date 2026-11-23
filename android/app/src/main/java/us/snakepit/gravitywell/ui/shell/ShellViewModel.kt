@@ -1,5 +1,7 @@
 package us.snakepit.gravitywell.ui.shell
 
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -72,6 +74,10 @@ class ShellController(
     private var activeSupplementaryApi: SessionSupplementaryApi? = null
     private var activeWsClient: GatewayWebSocketClient? = null
     private var wsCollectorJob: Job? = null
+    private var boundHostId: String? = null
+    private var boundBaseUrl: String? = null
+    private var boundLastVerifiedAt: String? = null
+    private var boundTokenDigest: String? = null
 
     init {
         reloadHostsAndBindActive()
@@ -88,7 +94,7 @@ class ShellController(
             initialHost = targetHost,
         )
 
-    fun reloadHostsAndBindActive() {
+    fun reloadHostsAndBindActive(forceRebind: Boolean = false) {
         val allHosts = cacheStore.listHosts()
         var active = cacheStore.getActiveHost()
         if (active == null && allHosts.isNotEmpty()) {
@@ -100,7 +106,6 @@ class ShellController(
             runCatching { json.decodeFromString<CapabilitiesDto>(it) }.getOrNull()
         } ?: CapabilitiesDto()
 
-        val prevHostId = _state.value.activeHost?.hostId
         _state.update {
             it.copy(
                 initialized = true,
@@ -114,7 +119,18 @@ class ShellController(
         if (active == null) {
             teardownActiveHostRuntime()
             _onboardingController.value = createOnboardingController(null)
-        } else if (active.hostId != prevHostId || _sessionBrowserController.value == null) {
+            return
+        }
+
+        val currentTokenDigest = digestToken(tokenVault.getToken(active.hostId))
+        val shouldRebind = forceRebind ||
+            _sessionBrowserController.value == null ||
+            active.hostId != boundHostId ||
+            active.baseUrl != boundBaseUrl ||
+            active.lastVerifiedAt != boundLastVerifiedAt ||
+            currentTokenDigest != boundTokenDigest
+
+        if (shouldRebind) {
             bindHostRuntime(active)
         }
     }
@@ -122,6 +138,11 @@ class ShellController(
     private fun bindHostRuntime(host: CachedHost) {
         teardownActiveHostRuntime()
         val parsedBaseUrl = host.baseUrl.toHttpUrlOrNull() ?: return
+
+        boundHostId = host.hostId
+        boundBaseUrl = host.baseUrl
+        boundLastVerifiedAt = host.lastVerifiedAt
+        boundTokenDigest = digestToken(tokenVault.getToken(host.hostId))
 
         val okHttp = clientFactory { tokenVault.getToken(host.hostId) }
         val gwApi = NetworkModule.createGatewayApi(parsedBaseUrl, okHttp, json)
@@ -193,9 +214,16 @@ class ShellController(
             is WsServerFrame.Event -> {
                 cacheStore.updateHostLastCursor(host.hostId, frame.cursor)
                 _state.update { it.copy(latestCursor = maxOf(it.latestCursor, frame.cursor)) }
-                persistBackgroundSessionEvent(host, frame)
+                val consoleCtrl = _sessionConsoleController.value
+                val isAttachedConsoleEvent = frame.sessionId != null &&
+                    consoleCtrl != null &&
+                    (frame.sessionId == _state.value.attachedSessionId || frame.sessionId == consoleCtrl.state.value.session.sessionId)
+                if (isAttachedConsoleEvent) {
+                    consoleCtrl.onWebSocketFrame(frame)
+                } else {
+                    persistBackgroundSessionEvent(host, frame)
+                }
                 _sessionBrowserController.value?.onWebSocketFrame(frame)
-                _sessionConsoleController.value?.onWebSocketFrame(frame)
             }
             is WsServerFrame.ReplayComplete -> {
                 cacheStore.updateHostLastCursor(host.hostId, frame.latestCursor)
@@ -220,12 +248,12 @@ class ShellController(
             return
         }
         val existing = cacheStore.getSession(host.hostId, sid)
-        val updatedStatus = if (frame.type == "session_status") {
-            frame.payload["status"]?.jsonPrimitive?.contentOrNull ?: existing?.status ?: "running"
-        } else if (frame.type == "session_closed") {
-            "closed"
-        } else {
-            existing?.status ?: "running"
+        val updatedStatus = when (frame.type) {
+            "session_status" -> frame.payload["status"]?.jsonPrimitive?.contentOrNull ?: existing?.status ?: "running"
+            "session_closed" -> "closed"
+            "permission_requested" -> "awaiting_approval"
+            "question_requested" -> "awaiting_question"
+            else -> existing?.status ?: "running"
         }
         val updatedTitle = if (frame.type == "session_info_update") {
             frame.payload["title"]?.jsonPrimitive?.contentOrNull ?: existing?.title ?: "Live Session"
@@ -411,7 +439,7 @@ class ShellController(
             )
         }
         cacheStore.setActiveHost(saved.hostId)
-        reloadHostsAndBindActive()
+        reloadHostsAndBindActive(forceRebind = true)
     }
 
     fun deleteHost(hostId: String) {
@@ -452,7 +480,22 @@ class ShellController(
         wsCollectorJob = null
         activeWsClient?.disconnect()
         activeWsClient = null
+        activeHostClient = null
+        activeGatewayApi = null
+        activeSupplementaryApi = null
+        boundHostId = null
+        boundBaseUrl = null
+        boundLastVerifiedAt = null
+        boundTokenDigest = null
         _sessionBrowserController.value = null
         _sessionConsoleController.value = null
+        _state.update { it.copy(wsState = WsConnectionState.Disconnected) }
+    }
+
+    private fun digestToken(raw: String?): String? {
+        if (raw.isNullOrEmpty()) return null
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest(raw.toByteArray(StandardCharsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 }

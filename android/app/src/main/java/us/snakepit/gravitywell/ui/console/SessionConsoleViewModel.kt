@@ -67,7 +67,6 @@ data class SessionConsoleUiState(
     val isSearchingAtFiles: Boolean = false,
     val forceShowSlashChips: Boolean = false,
     val expandedThoughtIds: Set<String> = emptySet(),
-    val collapsedStreamingThoughtIds: Set<String> = emptySet(),
     val expandedToolIds: Set<String> = emptySet(),
     val toolDiffModes: Map<String, DiffDisplayMode> = emptyMap(),
     val questionAnswersDraft: Map<String, Map<String, String>> = emptyMap(),
@@ -142,18 +141,19 @@ class SessionConsoleController(
         scope.launch {
             try {
                 val snap = gatewayApi.getSession(sessionId)
-                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json))
+                val existingCached = cacheStore.getSession(host.hostId, sessionId)
+                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json, existingCached))
                 persistQueueAndApprovalsToCache(snap)
 
                 val afterCursor = _state.value.session.lastCursor
                 val eventsResp = runCatching {
-                    gatewayApi.getSessionEvents(sessionId = sessionId, after = afterCursor, limit = 500)
+                    gatewayApi.getSessionEvents(sessionId = sessionId, after = afterCursor, limit = 2000)
                 }.getOrNull()
 
                 if (eventsResp != null && eventsResp.truncated) {
                     sawResyncLatch = true
                     val fullEvents = runCatching {
-                        gatewayApi.getSessionEvents(sessionId = sessionId, after = 0L, limit = 500)
+                        gatewayApi.getSessionEvents(sessionId = sessionId, after = 0L, limit = 2000)
                     }.getOrNull()
                     if (fullEvents != null) {
                         persistHttpEvents(fullEvents.events)
@@ -223,22 +223,46 @@ class SessionConsoleController(
             is WsServerFrame.Event -> {
                 if (frame.sessionId != sessionId) return
                 sawResyncLatch = false
-                // Ensure parent row exists in SQLite before inserting foreign-keyed event
-                if (cacheStore.getSession(host.hostId, sessionId) == null) {
-                    val s = _state.value.session
-                    cacheStore.upsertSession(
-                        us.snakepit.gravitywell.cache.CachedSession(
-                            hostId = host.hostId,
-                            sessionId = sessionId,
-                            title = s.title,
-                            titleSource = s.titleSource,
-                            cwd = s.cwd.ifBlank { host.defaultCwd.orEmpty() },
-                            status = s.status,
-                            isLive = true,
-                            updatedAt = frame.ts.ifBlank { nowIso() },
-                        ),
-                    )
-                }
+                val nextSession = ConsoleStreamReducer.applyWsEvent(_state.value.session, frame, json)
+                val existing = cacheStore.getSession(host.hostId, sessionId)
+                val modelVal = nextSession.configOptions.firstOrNull { it.id == "model" }?.currentValue ?: existing?.modelId
+                val thoughtVal = nextSession.configOptions.firstOrNull { it.id == "thought_level" }?.currentValue ?: existing?.thoughtLevel
+                val modeVal = nextSession.configOptions.firstOrNull { it.id == "mode" }?.currentValue ?: existing?.modeId
+                cacheStore.upsertSession(
+                    us.snakepit.gravitywell.cache.CachedSession(
+                        hostId = host.hostId,
+                        sessionId = sessionId,
+                        title = nextSession.title.ifBlank { existing?.title ?: "Live Session" },
+                        titleSource = nextSession.titleSource,
+                        preview = existing?.preview.orEmpty(),
+                        cwd = nextSession.cwd.ifBlank { existing?.cwd ?: host.defaultCwd.orEmpty() },
+                        addDirsJson = if (nextSession.addDirs.isNotEmpty()) {
+                            json.encodeToString(nextSession.addDirs)
+                        } else {
+                            existing?.addDirsJson ?: "[]"
+                        },
+                        status = nextSession.status,
+                        isLive = nextSession.isLive,
+                        modelId = modelVal,
+                        thoughtLevel = thoughtVal,
+                        modeId = modeVal,
+                        configJson = if (nextSession.configOptions.isNotEmpty()) {
+                            json.encodeToString(nextSession.configOptions)
+                        } else {
+                            existing?.configJson ?: "[]"
+                        },
+                        commandsJson = if (nextSession.availableCommands.isNotEmpty()) {
+                            json.encodeToString(nextSession.availableCommands)
+                        } else {
+                            existing?.commandsJson ?: "[]"
+                        },
+                        usedTokens = if (nextSession.usage.used > 0L) nextSession.usage.used else (existing?.usedTokens ?: 0L),
+                        contextSize = if (nextSession.usage.size > 0L) nextSession.usage.size else (existing?.contextSize ?: 0L),
+                        lastCursor = maxOf(existing?.lastCursor ?: 0L, nextSession.lastCursor, frame.cursor),
+                        lastSeq = maxOf(existing?.lastSeq ?: 0L, nextSession.lastSeq, frame.seq),
+                        updatedAt = frame.ts.ifBlank { existing?.updatedAt ?: nowIso() },
+                    ),
+                )
                 if (frame.seq > 0L) {
                     cacheStore.insertSessionEvent(
                         CachedSessionEvent(
@@ -252,9 +276,20 @@ class SessionConsoleController(
                         ),
                     )
                 }
+                if (
+                    frame.type == "permission_requested" ||
+                    frame.type == "permission_resolved" ||
+                    frame.type == "question_requested" ||
+                    frame.type == "question_resolved" ||
+                    frame.type == "session_closed"
+                ) {
+                    persistPendingApprovalsList(
+                        permissions = nextSession.pendingPermissions,
+                        questions = nextSession.pendingQuestions,
+                    )
+                }
                 cacheStore.updateHostLastCursor(host.hostId, frame.cursor)
                 _state.update { cur ->
-                    val nextSession = ConsoleStreamReducer.applyWsEvent(cur.session, frame, json)
                     cur.copy(
                         session = nextSession,
                         streamIndicator = if (cur.streamIndicator == ConsoleStreamIndicator.RESYNCED) {
@@ -745,15 +780,6 @@ class SessionConsoleController(
 
     // ── Collapsible Thought & Tool Gutter UI Toggles ────────────────────────
 
-    fun isThoughtExpanded(block: LedgerItem.ThoughtBlock): Boolean {
-        val snap = _state.value
-        return if (block.isStreaming) {
-            block.id in snap.expandedThoughtIds && block.id !in snap.collapsedStreamingThoughtIds
-        } else {
-            block.id in snap.expandedThoughtIds
-        }
-    }
-
     fun toggleThoughtExpanded(block: LedgerItem.ThoughtBlock) {
         _state.update { cur ->
             val expanded = if (block.id in cur.expandedThoughtIds) {
@@ -800,7 +826,8 @@ class SessionConsoleController(
         scope.launch {
             try {
                 val snap = gatewayApi.renameSession(sessionId, RenameSessionRequest(title = clean))
-                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json))
+                val existing = cacheStore.getSession(host.hostId, sessionId)
+                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json, existing))
                 _state.update { cur ->
                     cur.copy(
                         showRenameDialog = false,
@@ -817,6 +844,9 @@ class SessionConsoleController(
         scope.launch {
             try {
                 gatewayApi.closeSession(sessionId)
+                cacheStore.getSession(host.hostId, sessionId)?.let { existing ->
+                    cacheStore.upsertSession(existing.copy(isLive = false, status = "closed"))
+                }
                 _state.update { cur ->
                     cur.copy(session = cur.session.copy(isLive = false, status = "closed"))
                 }
@@ -842,7 +872,8 @@ class SessionConsoleController(
                     sessionId = sessionId,
                     body = UpdateConfigRequest(model = model, thoughtLevel = thoughtLevel, mode = mode),
                 )
-                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json))
+                val existing = cacheStore.getSession(host.hostId, sessionId)
+                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json, existing))
                 _state.update { cur ->
                     cur.copy(session = ConsoleStreamReducer.mergeSnapshot(cur.session, snap))
                 }
@@ -992,31 +1023,48 @@ class SessionConsoleController(
                 )
             },
         )
-        for (perm in snap.pendingPermissions) {
-            cacheStore.upsertPendingApproval(
-                CachedPendingApproval(
-                    hostId = host.hostId,
-                    sessionId = sessionId,
-                    requestId = perm.requestId,
-                    kind = "permission",
-                    title = perm.toolCall["title"]?.toString()?.trim('"') ?: "Permission Gate",
-                    payloadJson = json.encodeToString(perm),
-                    createdAt = perm.createdAt.ifBlank { nowIso() },
-                ),
-            )
+        persistPendingApprovalsList(
+            permissions = snap.pendingPermissions,
+            questions = snap.pendingQuestions,
+        )
+    }
+
+    private fun persistPendingApprovalsList(
+        permissions: List<us.snakepit.gravitywell.net.PendingPermissionDto>,
+        questions: List<us.snakepit.gravitywell.net.PendingQuestionDto>,
+    ) {
+        val approvals = buildList {
+            for (perm in permissions) {
+                add(
+                    CachedPendingApproval(
+                        hostId = host.hostId,
+                        sessionId = sessionId,
+                        requestId = perm.requestId,
+                        kind = "permission",
+                        title = perm.toolCall["title"]?.toString()?.trim('"') ?: "Permission Gate",
+                        payloadJson = json.encodeToString(perm),
+                        createdAt = perm.createdAt.ifBlank { nowIso() },
+                    ),
+                )
+            }
+            for (qst in questions) {
+                add(
+                    CachedPendingApproval(
+                        hostId = host.hostId,
+                        sessionId = sessionId,
+                        requestId = qst.requestId,
+                        kind = "question",
+                        title = qst.message.ifBlank { "Agent Question" },
+                        payloadJson = json.encodeToString(qst),
+                        createdAt = qst.createdAt.ifBlank { nowIso() },
+                    ),
+                )
+            }
         }
-        for (qst in snap.pendingQuestions) {
-            cacheStore.upsertPendingApproval(
-                CachedPendingApproval(
-                    hostId = host.hostId,
-                    sessionId = sessionId,
-                    requestId = qst.requestId,
-                    kind = "question",
-                    title = qst.message.ifBlank { "Agent Question" },
-                    payloadJson = json.encodeToString(qst),
-                    createdAt = qst.createdAt.ifBlank { nowIso() },
-                ),
-            )
-        }
+        cacheStore.replacePendingApprovals(
+            hostId = host.hostId,
+            sessionId = sessionId,
+            items = approvals,
+        )
     }
 }

@@ -467,6 +467,141 @@ class ConsoleEnginesAndControllerTest {
         assertEquals(ConsoleStreamIndicator.RESYNCED, ctrl.state.value.streamIndicator)
     }
 
+    @Test
+    fun `required boolean question field is submittable via defaultValue and syncWithGateway prunes stale approvals with 2000 event catchup`() = runBlocking {
+        val boolSchema = Json.parseToJsonElement(
+            """{
+              "type":"object",
+              "required":["q_confirm"],
+              "properties":{
+                "q_confirm":{"type":"boolean","title":"Proceed?","default":false}
+              }
+            }""",
+        ).jsonObject
+        val parsedFields = QuestionSchemaParser.parseFields(boolSchema)
+        assertTrue(
+            "Required BooleanField must be submittable without toggling twice",
+            QuestionSchemaParser.areRequiredAnswersSatisfied(parsedFields, emptyMap()),
+        )
+        val builtPayload = QuestionSchemaParser.buildAnswersPayload(parsedFields, emptyMap())
+        assertEquals("false", builtPayload["q_confirm"]!!.jsonPrimitive.content)
+
+        val observedEventsQueries = CopyOnWriteArrayList<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.url.encodedPath
+                return when {
+                    path == "/api/sessions/sess_resync" -> MockResponse.Builder().code(200).body(
+                        """{
+                          "session_id":"sess_resync",
+                          "title":"Resync Session",
+                          "title_source":"acp",
+                          "cwd":"/home/jason/projects/gravity-well",
+                          "status":"idle",
+                          "is_live":true,
+                          "pending_permissions":[],
+                          "pending_questions":[],
+                          "queued_followups":[],
+                          "cursor":2500,
+                          "seq":2500,
+                          "updated_at":"2026-11-23T16:00:00Z"
+                        }""",
+                    ).build()
+                    path == "/api/sessions/sess_resync/events" -> {
+                        observedEventsQueries += request.target
+                        val after = request.url.queryParameter("after")?.toLongOrNull() ?: 0L
+                        if (after > 0L) {
+                            MockResponse.Builder().code(200).body(
+                                """{"session_id":"sess_resync","after":$after,"min_cursor_retained":501,"latest_cursor":2500,"truncated":true,"events":[]}""",
+                            ).build()
+                        } else {
+                            MockResponse.Builder().code(200).body(
+                                """{"session_id":"sess_resync","after":0,"min_cursor_retained":501,"latest_cursor":2500,"truncated":false,"events":[{"cursor":2500,"seq":2500,"type":"agent_message_chunk","ts":"2026-11-23T16:00:00Z","payload":{"text":"Caught up 2000"}}]}""",
+                            ).build()
+                        }
+                    }
+                    path == "/api/sessions/sess_resync/queue" -> MockResponse.Builder().code(200).body(
+                        """{"items":[],"paused":false}""",
+                    ).build()
+                    else -> MockResponse.Builder().code(404).build()
+                }
+            }
+        }
+        server.start()
+
+        val host = CachedHost(
+            hostId = "h1",
+            label = "aurora",
+            baseUrl = server.url("/").toString(),
+            defaultCwd = "/home/jason/projects/gravity-well",
+            isActive = true,
+            createdAt = "2026-11-23T14:00:00Z",
+            lastVerifiedAt = "2026-11-23T14:00:00Z",
+        )
+        cacheStore.upsertHost(host)
+        cacheStore.upsertSession(
+            us.snakepit.gravitywell.cache.CachedSession(
+                hostId = "h1",
+                sessionId = "sess_resync",
+                title = "Resync Session",
+                cwd = "/home/jason/projects/gravity-well",
+                status = "awaiting_approval",
+                isLive = true,
+                lastCursor = 10L,
+                lastSeq = 10L,
+                updatedAt = "2026-11-23T15:00:00Z",
+            ),
+        )
+        cacheStore.insertSessionEvent(
+            us.snakepit.gravitywell.cache.CachedSessionEvent(
+                hostId = "h1",
+                sessionId = "sess_resync",
+                seq = 10L,
+                cursor = 10L,
+                eventType = "user_message_chunk",
+                payloadJson = """{"text":"old"}""",
+                ts = "2026-11-23T15:00:00Z",
+            ),
+        )
+        cacheStore.upsertPendingApproval(
+            us.snakepit.gravitywell.cache.CachedPendingApproval(
+                hostId = "h1",
+                sessionId = "sess_resync",
+                requestId = "stale_perm_99",
+                kind = "permission",
+                title = "Stale Gate",
+                payloadJson = "{}",
+                createdAt = "2026-11-23T15:00:00Z",
+            ),
+        )
+
+        val okHttp = NetworkModule.createOkHttpClient(tokenProvider = { "gw_tok_resync" })
+        val gwApi = NetworkModule.createGatewayApi(server.url("/"), okHttp)
+        val suppApi = SessionSupplementaryApi.create(server.url("/"), okHttp)
+        val ctrl = SessionConsoleController(
+            host = host,
+            sessionId = "sess_resync",
+            baseUrl = server.url("/"),
+            okHttpClient = okHttp,
+            gatewayApi = gwApi,
+            supplementaryApi = suppApi,
+            cacheStore = cacheStore,
+            scope = scope,
+        )
+
+        ctrl.syncWithGateway()
+        awaitCondition { ctrl.state.value.streamIndicator == ConsoleStreamIndicator.RESYNCED }
+
+        assertTrue(
+            "Truncated catch-up must request limit=2000, got $observedEventsQueries",
+            observedEventsQueries.any { it.contains("after=0") && it.contains("limit=2000") },
+        )
+        assertTrue(
+            "Stale pending_approvals must be pruned when absent from snapshot",
+            cacheStore.listPendingApprovals("h1", "sess_resync").isEmpty(),
+        )
+    }
+
     private suspend fun awaitCondition(timeoutMs: Long = 3_000L, predicate: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {

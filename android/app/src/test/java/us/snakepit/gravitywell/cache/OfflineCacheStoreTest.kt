@@ -140,6 +140,111 @@ class OfflineCacheStoreTest {
         assertNull(store.getComposerDraft("h2", "s_draft"))
     }
 
+    @Test
+    fun `upsertHost updates host metadata in place while preserving sessions events followups approvals drafts and observatory`() {
+        val originalCreatedAt = "2026-11-23T10:00:00Z"
+        store.upsertHost(
+            sampleHost("h1", isActive = true).copy(
+                label = "Old Label",
+                baseUrl = "https://old.example.ts.net/",
+                createdAt = originalCreatedAt,
+                lastVerifiedAt = originalCreatedAt,
+            ),
+        )
+        store.upsertSession(sampleSession("h1", "s1", isLive = true))
+        store.insertSessionEvents(
+            listOf(
+                CachedSessionEvent("h1", "s1", 1L, 10L, "user_message_chunk", """{"text":"p1"}""", "2026-11-23T15:00:00Z"),
+                CachedSessionEvent("h1", "s1", 2L, 11L, "agent_message_chunk", """{"text":"a1"}""", "2026-11-23T15:00:01Z"),
+            ),
+        )
+        store.replaceQueuedFollowups(
+            "h1",
+            "s1",
+            listOf(CachedQueuedFollowup("h1", "s1", "q_1", 0, "follow up", "[]", "queued", "2026-11-23T15:00:02Z")),
+        )
+        store.upsertPendingApproval(
+            CachedPendingApproval("h1", "s1", "perm_1", "permission", "pytest", "{}", "2026-11-23T15:00:03Z"),
+        )
+        store.saveComposerDraft(
+            CachedComposerDraft("h1", "s1", "unsent draft", """[{"localId":"a1"}]""", "2026-11-23T15:00:04Z"),
+        )
+        store.saveObservatorySnapshot(
+            CachedObservatorySnapshot("h1", """{"quota":99}""", """{"cpu":4}""", "2026-11-23T15:00:05Z"),
+        )
+
+        // Re-upsert same host_id (e.g. after 3-leg re-verification)
+        store.upsertHost(
+            sampleHost("h1", isActive = true).copy(
+                label = "Aurora Verified",
+                baseUrl = "https://aurora.example.ts.net/",
+                lastCursor = 42L,
+                createdAt = "2026-11-23T19:00:00Z",
+                lastVerifiedAt = "2026-11-23T19:00:00Z",
+            ),
+        )
+
+        val updatedHost = store.getHost("h1")
+        assertNotNull(updatedHost)
+        assertEquals("Aurora Verified", updatedHost!!.label)
+        assertEquals("https://aurora.example.ts.net/", updatedHost.baseUrl)
+        assertEquals(42L, updatedHost.lastCursor)
+        assertEquals(originalCreatedAt, updatedHost.createdAt)
+        assertEquals("2026-11-23T19:00:00Z", updatedHost.lastVerifiedAt)
+
+        assertNotNull("Session must survive upsertHost", store.getSession("h1", "s1"))
+        assertEquals("session_events must survive upsertHost", 2L, store.countSessionEvents("h1", "s1"))
+        assertEquals("queued_followups must survive upsertHost", 1, store.listQueuedFollowups("h1", "s1").size)
+        assertEquals("pending_approvals must survive upsertHost", 1, store.listPendingApprovals("h1", "s1").size)
+        assertEquals("composer_drafts must survive upsertHost", "unsent draft", store.getComposerDraft("h1", "s1")?.draftText)
+        assertEquals("observatory_snapshots must survive upsertHost", """{"quota":99}""", store.getObservatorySnapshot("h1")?.usageJson)
+    }
+
+    @Test
+    fun `upsertSession updates session metadata in place while preserving session_events queued_followups and pending_approvals`() {
+        store.upsertHost(sampleHost("h1", isActive = true))
+        store.upsertSession(sampleSession("h1", "s1", isLive = true))
+        store.insertSessionEvents(
+            listOf(
+                CachedSessionEvent("h1", "s1", 1L, 100L, "user_message_chunk", """{"text":"hello"}""", "2026-11-23T15:00:00Z"),
+                CachedSessionEvent("h1", "s1", 2L, 101L, "agent_thought_chunk", """{"text":"plan"}""", "2026-11-23T15:00:01Z"),
+                CachedSessionEvent("h1", "s1", 3L, 102L, "agent_message_chunk", """{"text":"done"}""", "2026-11-23T15:00:02Z"),
+            ),
+        )
+        store.replaceQueuedFollowups(
+            "h1",
+            "s1",
+            listOf(CachedQueuedFollowup("h1", "s1", "q_keep", 0, "run tests", "[]", "queued", "2026-11-23T15:00:03Z")),
+        )
+        store.upsertPendingApproval(
+            CachedPendingApproval("h1", "s1", "req_keep", "question", "Confirm?", "{}", "2026-11-23T15:00:04Z"),
+        )
+
+        // Upsert existing (host_id, session_id) with updated title/status/cursors
+        store.upsertSession(
+            sampleSession("h1", "s1", isLive = true).copy(
+                title = "Updated Session Title",
+                titleSource = "user",
+                status = "awaiting_question",
+                lastCursor = 105L,
+                lastSeq = 4L,
+                updatedAt = "2026-11-23T15:05:00Z",
+            ),
+        )
+
+        val updated = store.getSession("h1", "s1")
+        assertNotNull(updated)
+        assertEquals("Updated Session Title", updated!!.title)
+        assertEquals("user", updated.titleSource)
+        assertEquals("awaiting_question", updated.status)
+        assertEquals(105L, updated.lastCursor)
+        assertEquals(4L, updated.lastSeq)
+
+        assertEquals("session_events must survive upsertSession", 3L, store.countSessionEvents("h1", "s1"))
+        assertEquals("queued_followups must survive upsertSession", listOf("q_keep"), store.listQueuedFollowups("h1", "s1").map { it.itemId })
+        assertEquals("pending_approvals must survive upsertSession", listOf("req_keep"), store.listPendingApprovals("h1", "s1").map { it.requestId })
+    }
+
     private fun sampleHost(id: String, isActive: Boolean) = CachedHost(
         hostId = id,
         label = "Host $id",

@@ -81,8 +81,10 @@ class GatewayWebSocketClient(
     private val json: Json = NetworkModule.defaultJson,
     private val delayFn: suspend (Long) -> Unit = { delay(it) },
     initialCursor: Long = 0L,
+    private val webSocketFactory: WebSocket.Factory = okHttpClient,
 ) {
     private val api: GatewayApi = NetworkModule.createGatewayApi(baseUrl, okHttpClient, json)
+    private val socketLock = Any()
     private val connectionGeneration = AtomicLong(0L)
     private val lastSeenCursor = AtomicLong(initialCursor.coerceAtLeast(0L))
 
@@ -98,7 +100,7 @@ class GatewayWebSocketClient(
     private val _state = MutableStateFlow<WsConnectionState>(WsConnectionState.Disconnected)
     val state: StateFlow<WsConnectionState> = _state.asStateFlow()
 
-    private val _frames = MutableSharedFlow<WsServerFrame>(extraBufferCapacity = 256)
+    private val _frames = MutableSharedFlow<WsServerFrame>(extraBufferCapacity = 2048)
     val frames: SharedFlow<WsServerFrame> = _frames.asSharedFlow()
 
     val currentGeneration: Long
@@ -111,7 +113,6 @@ class GatewayWebSocketClient(
         afterCursor: Long? = null,
         sessionFilter: List<String>? = sessionFilterIds,
     ) {
-        sessionFilterIds = sessionFilter
         val sendInitialAfter = if (afterCursor != null) {
             lastSeenCursor.set(afterCursor.coerceAtLeast(0L))
             true
@@ -119,39 +120,58 @@ class GatewayWebSocketClient(
             lastSeenCursor.get() > 0L
         }
 
-        val myGen = connectionGeneration.incrementAndGet()
-        closeActiveSocket("superseded")
-        connectionJob?.cancel()
-        connectionJob = scope.launch(Dispatchers.IO) {
-            runConnectionLoop(myGen, initialSendAfter = sendInitialAfter)
+        val myGen: Long
+        val socketToClose: WebSocket?
+        val jobToCancel: Job?
+        synchronized(socketLock) {
+            sessionFilterIds = sessionFilter
+            myGen = connectionGeneration.incrementAndGet()
+            socketToClose = activeWebSocket
+            activeWebSocket = null
+            jobToCancel = connectionJob
+            connectionJob = scope.launch(Dispatchers.IO) {
+                runConnectionLoop(myGen, initialSendAfter = sendInitialAfter)
+            }
         }
+        jobToCancel?.cancel()
+        socketToClose?.close(1000, "superseded")
     }
 
-    fun updateSessionFilter(sessionIds: List<String>?) {
-        sessionFilterIds = sessionIds
-        val ws = activeWebSocket ?: return
-        if (target is WsTarget.Global) {
-            ws.send(json.encodeToString(WsClientSubscribe(sessionIds = sessionIds)))
+    fun updateSessionFilter(sessionIds: List<String>?): Boolean {
+        val payload = if (target is WsTarget.Global) {
+            json.encodeToString(WsClientSubscribe(sessionIds = sessionIds))
+        } else {
+            null
+        }
+        synchronized(socketLock) {
+            sessionFilterIds = sessionIds
+            val ws = activeWebSocket ?: return false
+            if (payload == null) return false
+            return ws.send(payload)
         }
     }
 
     fun sendPing(): Boolean {
-        val ws = activeWebSocket ?: return false
-        return ws.send(json.encodeToString(WsClientPing()))
+        val payload = json.encodeToString(WsClientPing())
+        synchronized(socketLock) {
+            val ws = activeWebSocket ?: return false
+            return ws.send(payload)
+        }
     }
 
     fun disconnect() {
-        connectionGeneration.incrementAndGet()
-        connectionJob?.cancel()
-        connectionJob = null
-        closeActiveSocket("client_disconnect")
-        _state.value = WsConnectionState.Disconnected
-    }
-
-    private fun closeActiveSocket(reason: String) {
-        val socket = activeWebSocket
-        activeWebSocket = null
-        socket?.close(1000, reason)
+        val socketToClose: WebSocket?
+        val jobToCancel: Job?
+        synchronized(socketLock) {
+            connectionGeneration.incrementAndGet()
+            socketToClose = activeWebSocket
+            activeWebSocket = null
+            jobToCancel = connectionJob
+            connectionJob = null
+            _state.value = WsConnectionState.Disconnected
+        }
+        jobToCancel?.cancel()
+        socketToClose?.close(1000, "client_disconnect")
     }
 
     private suspend fun runConnectionLoop(
@@ -253,26 +273,46 @@ class GatewayWebSocketClient(
         expectingReplay: Boolean,
         onHealthyHello: () -> Unit,
     ): SocketOutcome {
+        if (synchronized(socketLock) { connectionGeneration.get() != myGen }) {
+            return SocketOutcome.Superseded
+        }
+
         val outcome = CompletableDeferred<SocketOutcome>()
         val request = Request.Builder().url(wsUrl).build()
+        var socketTerminated = false
 
         val listener = createListenerForGeneration(
             myGen = myGen,
             expectingReplay = expectingReplay,
             onHealthyHello = onHealthyHello,
+            onSocketTerminatedLocked = { socketTerminated = true },
             onOutcome = { outcome.complete(it) },
         )
 
-        val socket = okHttpClient.newWebSocket(request, listener)
-        if (connectionGeneration.get() != myGen) {
+        val socket = webSocketFactory.newWebSocket(request, listener)
+        val superseded = synchronized(socketLock) {
+            if (connectionGeneration.get() != myGen) {
+                true
+            } else {
+                if (!socketTerminated) {
+                    activeWebSocket = socket
+                }
+                false
+            }
+        }
+        if (superseded) {
             socket.close(1000, "superseded")
             return SocketOutcome.Superseded
         }
-        activeWebSocket = socket
 
         return try {
             outcome.await()
         } catch (cancel: CancellationException) {
+            synchronized(socketLock) {
+                if (activeWebSocket === socket) {
+                    activeWebSocket = null
+                }
+            }
             socket.close(1000, "cancelled")
             throw cancel
         }
@@ -282,15 +322,20 @@ class GatewayWebSocketClient(
         myGen: Long,
         expectingReplay: Boolean = false,
         onHealthyHello: () -> Unit = {},
+        onSocketTerminatedLocked: () -> Unit = {},
         onOutcome: (SocketOutcome) -> Unit = {},
     ): WebSocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            if (connectionGeneration.get() != myGen) {
+            val filter: List<String>?
+            val isStale = synchronized(socketLock) {
+                filter = sessionFilterIds
+                connectionGeneration.get() != myGen
+            }
+            if (isStale) {
                 webSocket.close(1000, "stale_generation")
                 return
             }
             webSocket.send(json.encodeToString(WsClientHello()))
-            val filter = sessionFilterIds
             if (target is WsTarget.Global && filter != null) {
                 webSocket.send(json.encodeToString(WsClientSubscribe(sessionIds = filter)))
             }
@@ -341,7 +386,14 @@ class GatewayWebSocketClient(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            if (connectionGeneration.get() != myGen) {
+            val isStale = synchronized(socketLock) {
+                onSocketTerminatedLocked()
+                if (activeWebSocket === webSocket) {
+                    activeWebSocket = null
+                }
+                connectionGeneration.get() != myGen
+            }
+            if (isStale) {
                 onOutcome(SocketOutcome.Superseded)
             } else {
                 onOutcome(SocketOutcome.Ended("closed ($code): $reason"))
@@ -349,7 +401,14 @@ class GatewayWebSocketClient(
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            if (connectionGeneration.get() != myGen) {
+            val isStale = synchronized(socketLock) {
+                onSocketTerminatedLocked()
+                if (activeWebSocket === webSocket) {
+                    activeWebSocket = null
+                }
+                connectionGeneration.get() != myGen
+            }
+            if (isStale) {
                 onOutcome(SocketOutcome.Superseded)
             } else {
                 val msg = response?.let { "HTTP ${it.code}: ${it.message}" }

@@ -34,7 +34,7 @@ class OfflineCacheStore(
             if (host.isActive) {
                 db.execSQL("UPDATE hosts SET is_active = 0 WHERE host_id != ?", arrayOf(host.hostId))
             }
-            val values = ContentValues().apply {
+            val insertValues = ContentValues().apply {
                 put("host_id", host.hostId)
                 put("label", host.label)
                 put("base_url", host.baseUrl)
@@ -47,7 +47,14 @@ class OfflineCacheStore(
                 put("created_at", host.createdAt)
                 put("last_verified_at", host.lastVerifiedAt)
             }
-            db.insertWithOnConflict("hosts", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            val rowId = db.insertWithOnConflict("hosts", null, insertValues, SQLiteDatabase.CONFLICT_IGNORE)
+            if (rowId == -1L) {
+                val updateValues = ContentValues(insertValues).apply {
+                    remove("host_id")
+                    remove("created_at")
+                }
+                db.update("hosts", updateValues, "host_id = ?", arrayOf(host.hostId))
+            }
         }
     }
 
@@ -108,28 +115,42 @@ class OfflineCacheStore(
 
     fun upsertSession(session: CachedSession) {
         val db = dbHelper.writableDatabase
-        val values = ContentValues().apply {
-            put("host_id", session.hostId)
-            put("session_id", session.sessionId)
-            put("title", session.title)
-            put("title_source", session.titleSource)
-            put("preview", session.preview)
-            put("cwd", session.cwd)
-            put("add_dirs_json", session.addDirsJson)
-            put("status", session.status)
-            put("is_live", if (session.isLive) 1 else 0)
-            put("model_id", session.modelId)
-            put("thought_level", session.thoughtLevel)
-            put("mode_id", session.modeId)
-            put("config_json", session.configJson)
-            put("commands_json", session.commandsJson)
-            put("used_tokens", session.usedTokens)
-            put("context_size", session.contextSize)
-            put("last_cursor", session.lastCursor)
-            put("last_seq", session.lastSeq)
-            put("updated_at", session.updatedAt)
+        inTransaction(db) {
+            val insertValues = ContentValues().apply {
+                put("host_id", session.hostId)
+                put("session_id", session.sessionId)
+                put("title", session.title)
+                put("title_source", session.titleSource)
+                put("preview", session.preview)
+                put("cwd", session.cwd)
+                put("add_dirs_json", session.addDirsJson)
+                put("status", session.status)
+                put("is_live", if (session.isLive) 1 else 0)
+                put("model_id", session.modelId)
+                put("thought_level", session.thoughtLevel)
+                put("mode_id", session.modeId)
+                put("config_json", session.configJson)
+                put("commands_json", session.commandsJson)
+                put("used_tokens", session.usedTokens)
+                put("context_size", session.contextSize)
+                put("last_cursor", session.lastCursor)
+                put("last_seq", session.lastSeq)
+                put("updated_at", session.updatedAt)
+            }
+            val rowId = db.insertWithOnConflict("sessions", null, insertValues, SQLiteDatabase.CONFLICT_IGNORE)
+            if (rowId == -1L) {
+                val updateValues = ContentValues(insertValues).apply {
+                    remove("host_id")
+                    remove("session_id")
+                }
+                db.update(
+                    "sessions",
+                    updateValues,
+                    "host_id = ? AND session_id = ?",
+                    arrayOf(session.hostId, session.sessionId),
+                )
+            }
         }
-        db.insertWithOnConflict("sessions", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
     fun getSession(hostId: String, sessionId: String): CachedSession? {
@@ -285,6 +306,33 @@ class OfflineCacheStore(
     }
 
     // ── Pending Approvals & Questions ───────────────────────────────────────
+
+    fun replacePendingApprovals(
+        hostId: String,
+        sessionId: String,
+        items: List<CachedPendingApproval>,
+    ) {
+        val db = dbHelper.writableDatabase
+        inTransaction(db) {
+            db.delete(
+                "pending_approvals",
+                "host_id = ? AND session_id = ?",
+                arrayOf(hostId, sessionId),
+            )
+            for (item in items) {
+                val values = ContentValues().apply {
+                    put("host_id", item.hostId)
+                    put("session_id", item.sessionId)
+                    put("request_id", item.requestId)
+                    put("kind", item.kind)
+                    put("title", item.title)
+                    put("payload_json", item.payloadJson)
+                    put("created_at", item.createdAt)
+                }
+                db.insertWithOnConflict("pending_approvals", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+        }
+    }
 
     fun upsertPendingApproval(item: CachedPendingApproval) {
         val db = dbHelper.writableDatabase

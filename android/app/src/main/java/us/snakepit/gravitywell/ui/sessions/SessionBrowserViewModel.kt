@@ -565,17 +565,18 @@ internal fun SessionListItemDto.toCachedSession(
 internal fun SessionSnapshotDto.toCachedSession(
     hostId: String,
     json: Json = NetworkModule.defaultJson,
+    existing: CachedSession? = null,
 ): CachedSession {
-    val modelVal = configOptions.firstOrNull { it.id == "model" }?.currentValue
-    val thoughtVal = configOptions.firstOrNull { it.id == "thought_level" }?.currentValue
-    val modeVal = configOptions.firstOrNull { it.id == "mode" }?.currentValue
+    val modelVal = configOptions.firstOrNull { it.id == "model" }?.currentValue ?: existing?.modelId
+    val thoughtVal = configOptions.firstOrNull { it.id == "thought_level" }?.currentValue ?: existing?.thoughtLevel
+    val modeVal = configOptions.firstOrNull { it.id == "mode" }?.currentValue ?: existing?.modeId
     return CachedSession(
         hostId = hostId,
         sessionId = sessionId,
-        title = title.ifBlank { "Untitled Session" },
+        title = title.ifBlank { existing?.title ?: "Untitled Session" },
         titleSource = titleSource,
-        preview = "",
-        cwd = cwd,
+        preview = existing?.preview.orEmpty(),
+        cwd = cwd.ifBlank { existing?.cwd.orEmpty() },
         addDirsJson = json.encodeToString(addDirs),
         status = status,
         isLive = isLive,
@@ -586,9 +587,9 @@ internal fun SessionSnapshotDto.toCachedSession(
         commandsJson = json.encodeToString(availableCommands),
         usedTokens = usage.used,
         contextSize = usage.size,
-        lastCursor = cursor,
-        lastSeq = seq,
-        updatedAt = updatedAt.ifBlank { Instant.now().toString() },
+        lastCursor = maxOf(existing?.lastCursor ?: 0L, cursor),
+        lastSeq = maxOf(existing?.lastSeq ?: 0L, seq),
+        updatedAt = updatedAt.ifBlank { existing?.updatedAt ?: Instant.now().toString() },
     )
 }
 
