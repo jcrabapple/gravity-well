@@ -1,0 +1,25 @@
+[Unit]
+Description=Gravity Well ACP Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jason/projects/gravity-well/gateway
+UnsetEnvironment=PYTHONPATH
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/home/jason/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GRAVITY_WELL_AGY_BIN=/home/jason/.local/bin/agy
+Environment=GRAVITY_WELL_HOST=0.0.0.0
+Environment=GRAVITY_WELL_PORT=9340
+EnvironmentFile=-%h/.config/gravity-well/gateway.env
+# .venv/bin/python -> /usr/bin/python3 (Python 3.15.2)
+ExecStart=/home/jason/projects/gravity-well/gateway/.venv/bin/uvicorn gravity_well_gateway.main:app --host 0.0.0.0 --port 9340
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+KillMode=mixed
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

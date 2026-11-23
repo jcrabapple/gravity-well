@@ -26,6 +26,8 @@ from .config import (
     utc_now_iso,
     validate_session_id,
 )
+from .ecosystem import EcosystemManager, create_ecosystem_router
+from .observatory import ObservatoryManager, create_observatory_router
 from .replay import ReplayCatchup, ReplayHub, ReplaySubscription
 from .storage import MAX_ATTACHMENT_BYTES, StorageManager
 from .supervisor import SessionSupervisor
@@ -106,12 +108,16 @@ def _init_runtime_state(fastapi_app: FastAPI, explicit_config: GatewayConfig | N
     )
     storage = StorageManager(cfg)
     supervisor = SessionSupervisor(cfg, replay, storage)
+    observatory = ObservatoryManager(cfg, storage, supervisor)
+    ecosystem = EcosystemManager(cfg, supervisor)
 
     fastapi_app.state.config = cfg
     fastapi_app.state.auth = auth
     fastapi_app.state.replay = replay
     fastapi_app.state.storage = storage
     fastapi_app.state.supervisor = supervisor
+    fastapi_app.state.observatory = observatory
+    fastapi_app.state.ecosystem = ecosystem
     fastapi_app.state.started_mono = time.monotonic()
     fastapi_app.state.initialized = True
 
@@ -732,6 +738,11 @@ def create_fastapi_app(config: GatewayConfig | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         storage: StorageManager = request.app.state.storage
         return storage.search_conversations(q=q, cwd=cwd, limit=limit, offset=offset)
+
+    # ── 7. Observatory & Ecosystem Routers ───────────────────────────────────
+
+    fastapi_app.include_router(create_observatory_router())
+    fastapi_app.include_router(create_ecosystem_router())
 
     return fastapi_app
 
