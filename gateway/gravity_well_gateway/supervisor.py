@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 import secrets
+import shlex
 import subprocess
 from typing import Any, Sequence
 
@@ -22,6 +24,7 @@ from .config import (
     validate_session_id,
     validate_workspace_dir,
 )
+from .redaction import redact_text
 from .replay import ReplayHub
 from .storage import StorageManager
 
@@ -132,26 +135,125 @@ def _normalize_available_models(raw_models: Any) -> list[dict[str, Any]]:
     return out
 
 
+AGENT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+COMMAND_EXEC_TOOL_KINDS: frozenset[str] = frozenset(
+    {"execute", "bash", "shell", "command", "terminal", "run"}
+)
+
+SHELL_FORBIDDEN_OPERATORS: tuple[str, ...] = (
+    "&&",
+    "||",
+    ";",
+    "|",
+    "&",
+    "`",
+    "$(",
+    "\n",
+    "\r",
+    ">",
+    "<",
+    "\x00",
+)
+
+
+def _validate_agent_slug(agent: str) -> str:
+    """Validate optional `--agent` CLI slug against flag, path, and control-char injection."""
+    if not isinstance(agent, str):
+        raise GatewayError(422, "validation_error", "Agent slug must be a string.")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in agent):
+        raise GatewayError(400, "bad_request", "Agent slug contains invalid control characters.")
+    if agent.startswith("-"):
+        raise GatewayError(400, "bad_request", "Agent slug must not start with '-'.")
+    if not AGENT_SLUG_RE.fullmatch(agent):
+        raise GatewayError(
+            422,
+            "validation_error",
+            f"Agent slug must match ^[a-z0-9][a-z0-9_-]{{0,63}}$: {agent!r}",
+        )
+    return agent
+
+
+def _redact_nested(value: Any) -> Any:
+    if isinstance(value, str):
+        return redact_text(value)
+    if isinstance(value, dict):
+        return {k: _redact_nested(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_nested(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_nested(item) for item in value)
+    return value
+
+
+def _has_forbidden_shell_operators(cmd_line: str) -> bool:
+    return any(op in cmd_line for op in SHELL_FORBIDDEN_OPERATORS)
+
+
+def _extract_raw_command_line(tool_call: dict[str, Any]) -> str | None:
+    raw_input = tool_call.get("rawInput")
+    if not isinstance(raw_input, dict):
+        return None
+    for key in ("CommandLine", "command", "cmd"):
+        val = raw_input.get(key)
+        if isinstance(val, str) and val != "":
+            return val
+    return None
+
+
+def _parse_safe_argv(cmd_line: str) -> list[str] | None:
+    if not cmd_line or _has_forbidden_shell_operators(cmd_line):
+        return None
+    trimmed = cmd_line.strip(" \t")
+    if not trimmed:
+        return None
+    try:
+        tokens = shlex.split(trimmed, posix=True)
+    except ValueError:
+        return None
+    if not tokens or not tokens[0] or _has_forbidden_shell_operators(tokens[0]):
+        return None
+    return tokens
+
+
+def _is_command_tool(tool_call: dict[str, Any], tool_kind: str | None = None) -> bool:
+    kind = (tool_kind if tool_kind is not None else str(tool_call.get("kind") or "other")).strip().lower()
+    return kind in COMMAND_EXEC_TOOL_KINDS or _extract_raw_command_line(tool_call) is not None
+
+
 def _derive_command_prefix(tool_call: dict[str, Any]) -> str:
-    raw_input = tool_call.get("rawInput")
-    if isinstance(raw_input, dict):
-        cmd_line = str(raw_input.get("CommandLine") or raw_input.get("command") or "").strip()
-        if cmd_line:
-            parts = cmd_line.split()
-            return parts[0] if parts else ""
-    return ""
+    raw_cmd = _extract_raw_command_line(tool_call)
+    if raw_cmd is None:
+        return ""
+    tokens = _parse_safe_argv(raw_cmd)
+    if not tokens:
+        return ""
+    return tokens[0]
 
 
-def _command_matches_prefix(tool_call: dict[str, Any], prefix: str) -> bool:
+def _command_matches_prefix(
+    tool_call: dict[str, Any],
+    prefix: str,
+    *,
+    tool_kind: str = "execute",
+) -> bool:
     if not prefix:
+        if _is_command_tool(tool_call, tool_kind):
+            return False
         return True
-    raw_input = tool_call.get("rawInput")
-    cmd_line = ""
-    if isinstance(raw_input, dict):
-        cmd_line = str(raw_input.get("CommandLine") or raw_input.get("command") or "").strip()
-    if not cmd_line:
+    if (
+        _has_forbidden_shell_operators(prefix)
+        or prefix != prefix.strip()
+        or any(ch.isspace() for ch in prefix)
+    ):
         return False
-    return cmd_line == prefix or cmd_line.startswith(prefix + " ")
+    raw_cmd = _extract_raw_command_line(tool_call)
+    if raw_cmd is None:
+        return False
+    tokens = _parse_safe_argv(raw_cmd)
+    if not tokens:
+        return False
+    return tokens[0] == prefix
 
 
 @dataclass
@@ -342,13 +444,16 @@ class SessionSupervisor:
         tool_call: dict[str, Any],
     ) -> dict[str, Any] | None:
         tool_kind = str(tool_call.get("kind") or "other")
+        is_cmd = _is_command_tool(tool_call, tool_kind)
         for rule in self._load_permission_rules():
             if rule.get("workspace_root") != workspace_root:
                 continue
             if rule.get("tool_kind") != tool_kind:
                 continue
             prefix = str(rule.get("command_prefix") or "")
-            if _command_matches_prefix(tool_call, prefix):
+            if is_cmd and not prefix:
+                continue
+            if _command_matches_prefix(tool_call, prefix, tool_kind=tool_kind):
                 return rule
         return None
 
@@ -606,22 +711,23 @@ class SessionSupervisor:
     ) -> None:
         if session.status in ("closing", "closed"):
             return
+        safe_reason = redact_text(reason)
         session.queue_paused = True
         session.active_turn_id = None
         session.status = "error"
         for perm in list(session.pending_permissions.values()):
             if not perm.future.done():
-                perm.future.set_exception(AcpUpstreamError(reason, returncode=returncode))
+                perm.future.set_exception(AcpUpstreamError(safe_reason, returncode=returncode))
         session.pending_permissions.clear()
         for qst in list(session.pending_questions.values()):
             if not qst.future.done():
-                qst.future.set_exception(AcpUpstreamError(reason, returncode=returncode))
+                qst.future.set_exception(AcpUpstreamError(safe_reason, returncode=returncode))
         session.pending_questions.clear()
 
         self._emit_session_event(
             session,
             "session_status",
-            {"status": "error", "reason": reason},
+            {"status": "error", "reason": safe_reason},
         )
         self._emit_session_event(
             session,
@@ -638,33 +744,35 @@ class SessionSupervisor:
         if isinstance(exc, GatewayError):
             return exc
         if isinstance(exc, AcpRpcError):
+            safe_msg = redact_text(exc.message)
             if exc.code == -32002:
-                return GatewayError(404, "not_found", exc.message, details={"acp_code": exc.code})
+                return GatewayError(404, "not_found", safe_msg, details={"acp_code": exc.code})
             if exc.code == -32601:
                 return GatewayError(
                     501,
                     "acp_method_unsupported",
-                    f"Antigravity CLI {self.get_agy_version()} does not support {fallback_method or 'method'} (-32601).",
+                    f"Antigravity CLI {redact_text(self.get_agy_version())} does not support {fallback_method or 'method'} (-32601).",
                     details={"acp_method": fallback_method, "acp_code": -32601},
                 )
             if exc.code == -32602:
                 return GatewayError(
                     422,
                     "validation_error",
-                    exc.message,
-                    details={"acp_code": -32602, "data": exc.data},
+                    safe_msg,
+                    details={"acp_code": -32602, "data": _redact_nested(exc.data)},
                 )
             return GatewayError(
                 502,
                 "acp_upstream_error",
-                exc.message,
+                safe_msg,
                 details={"acp_code": exc.code},
             )
         if isinstance(exc, AcpUpstreamError):
-            if "not found" in str(exc).lower() and "binary" in str(exc).lower():
-                return GatewayError(503, "service_unavailable", str(exc))
-            return GatewayError(502, "acp_upstream_error", str(exc))
-        return GatewayError(502, "acp_upstream_error", str(exc))
+            safe_err = redact_text(str(exc))
+            if "not found" in safe_err.lower() and "binary" in safe_err.lower():
+                return GatewayError(503, "service_unavailable", safe_err)
+            return GatewayError(502, "acp_upstream_error", safe_err)
+        return GatewayError(502, "acp_upstream_error", redact_text(str(exc)))
 
     async def create_session(
         self,
@@ -680,6 +788,7 @@ class SessionSupervisor:
         """Spawn `agy acp --stdio`, run `initialize` + `session/new`, and apply initial config."""
         real_cwd = validate_workspace_dir(cwd or str(self._config.default_cwd), self._config)
         real_add_dirs = [validate_workspace_dir(d, self._config) for d in add_dirs]
+        safe_agent = _validate_agent_slug(agent) if agent is not None else None
 
         if title is not None:
             trimmed_title = title.strip()
@@ -705,7 +814,7 @@ class SessionSupervisor:
             config=self._config,
             cwd=real_cwd,
             add_dirs=real_add_dirs,
-            agent=agent,
+            agent=safe_agent,
             sandbox=sandbox,
             on_notification=_notif,
             on_server_request=_sreq,
@@ -716,7 +825,7 @@ class SessionSupervisor:
             cwd=real_cwd,
             add_dirs=real_add_dirs,
             acp=acp,
-            agent=agent,
+            agent=safe_agent,
             sandbox=sandbox,
         )
         holder["session"] = live
@@ -774,9 +883,13 @@ class SessionSupervisor:
             live.early_updates.clear()
 
             return live.to_snapshot(self._replay)
-        except Exception as exc:
+        except BaseException as exc:
+            if live.session_id:
+                self._sessions.pop(live.session_id, None)
             await acp.close()
-            raise self._map_acp_error(exc, "session/new") from exc
+            if isinstance(exc, Exception):
+                raise self._map_acp_error(exc, "session/new") from exc
+            raise
 
     async def resume_session(
         self,
@@ -870,9 +983,11 @@ class SessionSupervisor:
                 {"snapshot": live.to_snapshot(self._replay)},
             )
             return live.to_snapshot(self._replay)
-        except Exception as exc:
+        except BaseException as exc:
             await acp.close()
-            raise self._map_acp_error(exc, acp_method) from exc
+            if isinstance(exc, Exception):
+                raise self._map_acp_error(exc, acp_method) from exc
+            raise
 
     async def fork_session(self, session_id: str, cwd: str | None = None) -> dict[str, Any]:
         """Attempt ACP `session/fork`; maps `-32601` to HTTP 501 `acp_method_unsupported` (D4)."""
@@ -1268,7 +1383,7 @@ class SessionSupervisor:
                         self._emit_session_event(
                             live,
                             "session_status",
-                            {"status": "error", "reason": str(exc)},
+                            {"status": "error", "reason": redact_text(str(exc))},
                         )
                         self._emit_session_event(
                             live,
@@ -1672,18 +1787,24 @@ class SessionSupervisor:
                     _select_option_id(pending.options, ("allow_always", "allow_once"))
                     or "allow-once"
                 )
-            rule_id = f"rule_{secrets.token_hex(8)}"
-            rules = self._load_permission_rules()
-            rules.append(
-                {
-                    "rule_id": rule_id,
-                    "workspace_root": live.cwd,
-                    "tool_kind": str(pending.tool_call.get("kind") or "other"),
-                    "command_prefix": _derive_command_prefix(pending.tool_call),
-                    "created_at": utc_now_iso(),
-                }
-            )
-            self._save_permission_rules(rules)
+            tool_kind = str(pending.tool_call.get("kind") or "other")
+            derived_prefix = _derive_command_prefix(pending.tool_call)
+            if _is_command_tool(pending.tool_call, tool_kind) and not derived_prefix:
+                if option_id is None:
+                    chosen_opt = _select_option_id(pending.options, ("allow_once",)) or "allow-once"
+            else:
+                rule_id = f"rule_{secrets.token_hex(8)}"
+                rules = self._load_permission_rules()
+                rules.append(
+                    {
+                        "rule_id": rule_id,
+                        "workspace_root": live.cwd,
+                        "tool_kind": tool_kind,
+                        "command_prefix": derived_prefix,
+                        "created_at": utc_now_iso(),
+                    }
+                )
+                self._save_permission_rules(rules)
             acp_outcome = {"outcome": {"outcome": "selected", "optionId": chosen_opt}}
 
         else:  # deny

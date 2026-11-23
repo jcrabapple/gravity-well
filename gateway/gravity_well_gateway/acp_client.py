@@ -89,7 +89,12 @@ class AcpClient:
         argv: list[str] = [self._config.agy_bin, "acp", "--stdio"]
         for extra_dir in self.add_dirs:
             argv.extend(["--add-dir", extra_dir])
-        if self.agent:
+        if self.agent is not None:
+            if not self.agent or self.agent.startswith("-") or any(
+                ord(ch) < 32 or ord(ch) == 127 or ch.isspace() or ch in ("/", "\\")
+                for ch in self.agent
+            ):
+                raise AcpUpstreamError("Invalid ACP agent argument.")
             argv.extend(["--agent", self.agent])
         if self.sandbox:
             argv.append("--sandbox")

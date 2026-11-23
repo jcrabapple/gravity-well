@@ -536,6 +536,17 @@ def test_ecosystem_settings_allowlist_and_atomic_preservation(
         assert on_disk["general"] == {"previewFeatures": True, "enablePromptCompletion": True}
         assert stat.S_IMODE(os.stat(settings_path).st_mode) == 0o600
 
+        # Malformed or non-dict existing settings.json MUST fail closed (409/502) and NOT overwrite disk
+        for corrupt_raw in ("{corrupt_json: true", '["list", "not", "dict"]'):
+            settings_path.write_text(corrupt_raw, encoding="utf-8")
+            r_corrupt = tc.patch(
+                "/api/ecosystem/settings",
+                headers=auth_headers,
+                json={"general": {"previewFeatures": False}},
+            )
+            assert r_corrupt.status_code in (409, 502)
+            assert settings_path.read_text(encoding="utf-8") == corrupt_raw
+
 
 def test_systemd_unit_and_hermetic_installer_script(tmp_path: Path) -> None:
     gateway_root = Path(__file__).resolve().parent.parent

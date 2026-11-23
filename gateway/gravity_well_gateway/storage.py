@@ -22,11 +22,11 @@ from .config import (
     atomic_write_json,
     is_subpath,
     read_json_file,
-    redact_secrets,
     utc_now_iso,
     validate_session_id,
     validate_workspace_dir,
 )
+from .redaction import redact_text
 
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MiB
 
@@ -730,6 +730,14 @@ class StorageManager:
 
         data = Path(real_target).read_bytes()
         ext = Path(real_target).suffix.lower()
+        sniffed_binary = _sniff_binary_magic(data)
+        if (
+            sniffed_binary is not None
+            and ext not in ALWAYS_REDACTED_ARTIFACT_EXTS
+            and ext not in TEXT_EXT_TO_MIME
+        ):
+            return data, sniffed_binary
+
         mime = (
             TEXT_EXT_TO_MIME.get(ext)
             or BINARY_EXT_TO_MIME.get(ext)
@@ -737,16 +745,40 @@ class StorageManager:
             or "application/octet-stream"
         )
 
-        is_log_or_text = (
+        is_known_text = (
             ext in ALWAYS_REDACTED_ARTIFACT_EXTS
+            or ext in TEXT_EXT_TO_MIME
             or mime.startswith("text/")
-            or mime in ("application/json", "application/x-ndjson")
+            or mime in (
+                "application/json",
+                "application/x-ndjson",
+                "application/yaml",
+                "application/x-yaml",
+                "application/toml",
+                "application/xml",
+                "application/sql",
+            )
         )
-        if is_log_or_text:
+        if is_known_text:
             text = data.decode("utf-8", errors="replace")
-            redacted = redact_secrets(text)
+            redacted = redact_text(text)
             out_mime = f"{mime}; charset=utf-8" if "charset=" not in mime else mime
             return redacted.encode("utf-8"), out_mime
+
+        if b"\x00" not in data:
+            try:
+                decoded = data.decode("utf-8")
+            except UnicodeDecodeError:
+                pass
+            else:
+                redacted = redact_text(decoded)
+                base_mime = (
+                    "text/plain"
+                    if mime in ("application/octet-stream", *BINARY_EXT_TO_MIME.values())
+                    else mime
+                )
+                out_mime = f"{base_mime}; charset=utf-8" if "charset=" not in base_mime else base_mime
+                return redacted.encode("utf-8"), out_mime
 
         if raw:
             return data, mime

@@ -817,8 +817,38 @@ class EcosystemManager:
                 sec_updates[sub_key] = sub_val
             updates[top_key] = sec_updates
 
-        existing = read_json_file(self.settings_path, {})
-        if not isinstance(existing, dict):
+        existing: dict[str, Any]
+        if self.settings_path.exists():
+            if not self.settings_path.is_file():
+                raise GatewayError(
+                    409,
+                    "conflict",
+                    "Existing ~/.gemini/settings.json is not a regular file; refusing to overwrite.",
+                )
+            try:
+                raw_settings_text = self.settings_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise GatewayError(
+                    502,
+                    "acp_upstream_error",
+                    f"Failed to read existing ~/.gemini/settings.json: {redact_text(str(exc))}",
+                ) from exc
+            try:
+                parsed_existing = json.loads(raw_settings_text)
+            except json.JSONDecodeError as exc:
+                raise GatewayError(
+                    409,
+                    "conflict",
+                    "Existing ~/.gemini/settings.json contains malformed JSON; refusing to overwrite.",
+                ) from exc
+            if not isinstance(parsed_existing, dict):
+                raise GatewayError(
+                    409,
+                    "conflict",
+                    "Existing ~/.gemini/settings.json root must be a JSON object; refusing to overwrite.",
+                )
+            existing = dict(parsed_existing)
+        else:
             existing = {}
 
         for top_key, sec_updates in updates.items():

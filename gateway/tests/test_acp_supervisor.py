@@ -403,3 +403,272 @@ def test_large_frame_and_sessions_merge_with_archived(
     ids = [item["session_id"] for item in listed["items"]]
     assert ids[0] == sid  # live sorted before archived
     assert "arch-uuid-1111" in ids
+
+
+def test_allow_rule_blocks_shell_chaining_and_empty_prefix_wildcard(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    sandbox: SandboxEnv,
+) -> None:
+    sid = client.post(
+        "/api/sessions",
+        headers=auth_headers,
+        json={"cwd": str(sandbox.workspace)},
+    ).json()["session_id"]
+
+    # 1. Grant allow_rule on `pytest -q`
+    client.post(
+        f"/api/sessions/{sid}/prompt",
+        headers=auth_headers,
+        json={"text": "[ASK_PERMISSION:pytest -q]"},
+    )
+    snap = _wait_for_session_status(client, auth_headers, sid, {"awaiting_approval"})
+    req_id = snap["pending_permissions"][0]["request_id"]  # type: ignore[index]
+    res_rule = client.post(
+        f"/api/sessions/{sid}/permissions/{req_id}",
+        headers=auth_headers,
+        json={"decision": "allow_rule"},
+    )
+    assert res_rule.status_code == 200
+    assert res_rule.json()["rule_id"].startswith("rule_")
+    _wait_for_session_status(client, auth_headers, sid, {"idle"})
+
+    # 2. Safe argv invocation `pytest -v` auto-approves without interactive halt
+    ev_before = client.get(f"/api/sessions/{sid}/events?after=0", headers=auth_headers).json()["latest_cursor"]
+    client.post(
+        f"/api/sessions/{sid}/prompt",
+        headers=auth_headers,
+        json={"text": "[ASK_PERMISSION:pytest -v]"},
+    )
+    _wait_for_session_status(client, auth_headers, sid, {"idle"})
+    new_evs = client.get(f"/api/sessions/{sid}/events?after={ev_before}", headers=auth_headers).json()["events"]
+    assert any(e["type"] == "permission_auto_approved" for e in new_evs)
+
+    # 3. Shell chaining, subshell, backgrounding, newline, and redirection MUST NOT auto-approve
+    chained_payloads = [
+        "pytest && id",
+        "pytest || id",
+        "pytest; echo pwn",
+        "pytest | cat",
+        "pytest > /tmp/x",
+        "pytest < /etc/hosts",
+        "pytest & echo bg",
+        "pytest `id`",
+        "pytest $(id)",
+        "pytest\nid",
+        "pytest\rid",
+        'pytest "unterminated',
+        "pytest-3 -q",
+    ]
+    for bad_cmd in chained_payloads:
+        cursor_before = client.get(
+            f"/api/sessions/{sid}/events?after=0", headers=auth_headers
+        ).json()["latest_cursor"]
+        client.post(
+            f"/api/sessions/{sid}/prompt",
+            headers=auth_headers,
+            json={"text": f"[ASK_PERMISSION:{bad_cmd}]"},
+        )
+        pending_snap = _wait_for_session_status(client, auth_headers, sid, {"awaiting_approval"})
+        mid_evs = client.get(
+            f"/api/sessions/{sid}/events?after={cursor_before}", headers=auth_headers
+        ).json()["events"]
+        assert not any(
+            e["type"] == "permission_auto_approved" for e in mid_evs
+        ), f"Bypass auto-approved: {bad_cmd!r}"
+
+        perm_req_id = pending_snap["pending_permissions"][0]["request_id"]  # type: ignore[index]
+        # Even if user clicks allow_rule on a chained command, do NOT persist an empty-prefix wildcard rule
+        r_res = client.post(
+            f"/api/sessions/{sid}/permissions/{perm_req_id}",
+            headers=auth_headers,
+            json={"decision": "allow_rule" if bad_cmd == "pytest && id" else "deny"},
+        )
+        assert r_res.status_code == 200
+        if bad_cmd == "pytest && id":
+            assert r_res.json()["rule_id"] is None
+        _wait_for_session_status(client, auth_headers, sid, {"idle"})
+
+    # 4. Stored permission_rules.json entry with tool_kind="execute" and command_prefix="" MUST NOT wildcard match
+    rules_path = sandbox.config_dir / "permission_rules.json"
+    rules_path.write_text(
+        json.dumps(
+            [
+                {
+                    "rule_id": "rule_empty_wildcard",
+                    "workspace_root": str(sandbox.workspace.resolve()),
+                    "tool_kind": "execute",
+                    "command_prefix": "",
+                    "created_at": "2026-11-23T00:00:00Z",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    cursor_rm = client.get(f"/api/sessions/{sid}/events?after=0", headers=auth_headers).json()["latest_cursor"]
+    client.post(
+        f"/api/sessions/{sid}/prompt",
+        headers=auth_headers,
+        json={"text": "[ASK_PERMISSION:rm -rf /tmp/x]"},
+    )
+    rm_snap = _wait_for_session_status(client, auth_headers, sid, {"awaiting_approval"})
+    rm_evs = client.get(f"/api/sessions/{sid}/events?after={cursor_rm}", headers=auth_headers).json()["events"]
+    assert not any(e["type"] == "permission_auto_approved" for e in rm_evs)
+    rm_req_id = rm_snap["pending_permissions"][0]["request_id"]  # type: ignore[index]
+    assert client.post(
+        f"/api/sessions/{sid}/permissions/{rm_req_id}",
+        headers=auth_headers,
+        json={"decision": "deny"},
+    ).status_code == 200
+    _wait_for_session_status(client, auth_headers, sid, {"idle"})
+
+    # 5. Direct helper checks for empty prefix & missing CommandLine on execute allow_rule
+    from gravity_well_gateway.supervisor import _command_matches_prefix, _derive_command_prefix
+
+    assert _derive_command_prefix({"kind": "execute", "rawInput": {}}) == ""
+    assert _derive_command_prefix({"kind": "execute", "rawInput": {"CommandLine": 'pytest "unclosed'}}) == ""
+    assert (
+        _command_matches_prefix(
+            {"kind": "execute", "rawInput": {"CommandLine": "rm -rf /tmp/x"}},
+            "",
+            tool_kind="execute",
+        )
+        is False
+    )
+
+
+def test_create_session_validates_agent_slug_against_flag_and_path_injection(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    sandbox: SandboxEnv,
+) -> None:
+    for invalid_agent in (
+        "-flag",
+        "--help",
+        "bad agent",
+        "../evil",
+        "nested/agent",
+        "nested\\agent",
+        "ctrl\nchar",
+        "null\x00byte",
+        "UpperCase",
+        "",
+        "a" * 65,
+    ):
+        r = client.post(
+            "/api/sessions",
+            headers=auth_headers,
+            json={"cwd": str(sandbox.workspace), "agent": invalid_agent},
+        )
+        assert r.status_code in (400, 422), f"Expected 400/422 for agent={invalid_agent!r}, got {r.status_code}"
+
+    ok = client.post(
+        "/api/sessions",
+        headers=auth_headers,
+        json={"cwd": str(sandbox.workspace), "agent": "code-auditor_01"},
+    )
+    assert ok.status_code == 201
+    sid = ok.json()["session_id"]
+    assert ok.json()["agent"] == "code-auditor_01"
+    assert client.delete(f"/api/sessions/{sid}", headers=auth_headers).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_supervisor_redacts_acp_errors_and_closes_acp_on_cancelled_handshake(
+    sandbox: SandboxEnv,
+) -> None:
+    import asyncio
+    from gravity_well_gateway.acp_client import AcpRpcError, AcpUpstreamError
+    from gravity_well_gateway.config import GatewayConfig
+    from gravity_well_gateway.replay import ReplayHub
+    from gravity_well_gateway.storage import StorageManager
+    from gravity_well_gateway.supervisor import SessionSupervisor
+
+    cfg = GatewayConfig.from_env()
+    replay = ReplayHub()
+    storage = StorageManager(cfg)
+    sup = SessionSupervisor(cfg, replay, storage)
+
+    # 1. _map_acp_error redacts secrets in message and details
+    raw_bearer = "secret" + "bearerTokenXYZ987654"
+    raw_ai_key = "AIza" + "SyD9876543210abcdefghijklmnopqr"
+    raw_oauth = "ya29." + "a0AfH6SMBxSecretTokenValue12345"
+
+    err_rpc = sup._map_acp_error(
+        AcpRpcError(
+            -32602,
+            f"Auth failed with Bearer {raw_bearer} and {raw_oauth}",
+            data={"api_key": raw_ai_key},
+        )
+    )
+    assert raw_bearer not in err_rpc.message
+    assert raw_oauth not in err_rpc.message
+    assert "[REDACTED]" in err_rpc.message
+    assert raw_ai_key not in json.dumps(err_rpc.details)
+
+    err_up = sup._map_acp_error(AcpUpstreamError(f"Crash env API_TOKEN={raw_bearer}"))
+    assert raw_bearer not in err_up.message
+    assert "[REDACTED]" in err_up.message
+
+    # 2. _run_turn_loop redacts upstream prompt exception before emitting session_status
+    snap = await sup.create_session(cwd=str(sandbox.workspace))
+    sid = snap["session_id"]
+    live = sup.get_live_session(sid)
+    assert live is not None
+
+    async def _failing_prompt(method: str, params: dict[str, object] | None = None, timeout: float | None = 60.0) -> object:
+        raise AcpRpcError(-32603, f"Turn failed: Authorization: Bearer {raw_bearer} {raw_oauth}")
+
+    orig_req = live.acp.request
+    live.acp.request = _failing_prompt  # type: ignore[method-assign]
+    try:
+        await sup.submit_prompt(sid, text="Trigger redacted turn failure")
+        assert live.turn_task is not None
+        await live.turn_task
+    finally:
+        live.acp.request = orig_req  # type: ignore[method-assign]
+
+    evs = replay.get_session_events_http(sid, after=0, limit=200)["events"]
+    err_statuses = [
+        e["payload"] for e in evs if e["type"] == "session_status" and e["payload"].get("status") == "error"
+    ]
+    assert err_statuses
+    reason_str = str(err_statuses[-1].get("reason") or "")
+    assert raw_bearer not in reason_str
+    assert raw_oauth not in reason_str
+    assert "[REDACTED]" in reason_str
+    await sup.close_session(sid)
+
+    # 3. CancelledError during create_session and resume_session handshakes closes & reaps child ACP
+    spawned_pids: list[int] = []
+    handshake_started = asyncio.Event()
+    orig_init = sup._initialize_acp
+
+    async def _stalled_init(acp_client):  # type: ignore[no-untyped-def]
+        assert acp_client.pid is not None
+        spawned_pids.append(acp_client.pid)
+        handshake_started.set()
+        await asyncio.sleep(30.0)
+        return {}
+
+    sup._initialize_acp = _stalled_init  # type: ignore[method-assign]
+    try:
+        create_task = asyncio.create_task(sup.create_session(cwd=str(sandbox.workspace)))
+        await asyncio.wait_for(handshake_started.wait(), timeout=5.0)
+        create_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await create_task
+        with pytest.raises(ProcessLookupError):
+            os.kill(spawned_pids[-1], 0)
+
+        handshake_started.clear()
+        resume_task = asyncio.create_task(sup.resume_session(sid, cwd=str(sandbox.workspace)))
+        await asyncio.wait_for(handshake_started.wait(), timeout=5.0)
+        resume_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await resume_task
+        with pytest.raises(ProcessLookupError):
+            os.kill(spawned_pids[-1], 0)
+    finally:
+        sup._initialize_acp = orig_init  # type: ignore[method-assign]
+        await sup.shutdown()

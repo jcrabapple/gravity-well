@@ -217,6 +217,58 @@ def test_brain_artifacts_symlink_containment_traversal_block_and_secret_redactio
     assert trav_r.json()["error"]["code"] == "forbidden"
 
 
+def test_brain_artifacts_redact_yaml_toml_xml_sql_and_unknown_utf8_while_preserving_binaries(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    sandbox: SandboxEnv,
+) -> None:
+    sid = client.post(
+        "/api/sessions",
+        headers=auth_headers,
+        json={"cwd": str(sandbox.workspace)},
+    ).json()["session_id"]
+
+    brain_dir = sandbox.agy_cli_dir / "brain" / sid
+    brain_dir.mkdir(parents=True, exist_ok=True)
+
+    secret_ai = "AIza" + "SyC9876543210abcdefghijklmnopqr"
+    secret_oauth = "ya29." + "a0AfH6SMBxArtifactSecretToken123"
+    secret_env = "raw_artifact_secret_val_555"
+
+    text_Payloads = {
+        "config.yaml": f"api_key: {secret_ai}\noauth: {secret_oauth}\n",
+        "settings.toml": f'SERVICE_SECRET = "{secret_env}"\ntoken = "{secret_ai}"\n',
+        "manifest.xml": f"<config><header>Authorization: Bearer {secret_oauth}</header></config>\n",
+        "dump.sql": f"INSERT INTO creds VALUES ('{secret_ai}', 'API_TOKEN={secret_env}');\n",
+        "NOTES": f"Unextensioned UTF-8 note with Bearer {secret_oauth} and {secret_ai}\n",
+        "trace.customext": f"CUSTOM_SECRET={secret_env}\n",
+    }
+    for rel_name, content in text_Payloads.items():
+        (brain_dir / rel_name).write_text(content, encoding="utf-8")
+
+    pdf_bytes = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n"
+    (brain_dir / "report.pdf").write_bytes(pdf_bytes)
+    (brain_dir / "pixel.png").write_bytes(PNG_1X1)
+
+    for rel_name in text_Payloads:
+        for suffix in ("", "?raw=1"):
+            r = client.get(f"/api/sessions/{sid}/artifacts/{rel_name}{suffix}", headers=auth_headers)
+            assert r.status_code == 200, f"Failed serving {rel_name}{suffix}"
+            assert r.headers.get("x-content-type-options") == "nosniff"
+            assert secret_ai not in r.text, f"Leaked key in {rel_name}{suffix}"
+            assert secret_oauth not in r.text, f"Leaked oauth in {rel_name}{suffix}"
+            assert secret_env not in r.text, f"Leaked env secret in {rel_name}{suffix}"
+            assert "[REDACTED]" in r.text, f"Missing redaction marker in {rel_name}{suffix}"
+
+    r_pdf = client.get(f"/api/sessions/{sid}/artifacts/report.pdf?raw=1", headers=auth_headers)
+    assert r_pdf.status_code == 200
+    assert r_pdf.content == pdf_bytes
+
+    r_png = client.get(f"/api/sessions/{sid}/artifacts/pixel.png?raw=1", headers=auth_headers)
+    assert r_png.status_code == 200
+    assert r_png.content == PNG_1X1
+
+
 def test_attachments_magic_bytes_size_cap_and_prompt_forwarding(
     client: TestClient,
     auth_headers: dict[str, str],
