@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 31+: platform renders adaptive launcher icon as splash animated icon. -->
+    <style name="Theme.GravityWell" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/chassis_void</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.GravityWell.Main</item>
+    </style>
+</resources>

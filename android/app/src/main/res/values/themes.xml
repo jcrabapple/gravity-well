@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SplashScreen compat theme (static dark chassis, #0B0D10, zero white flash). -->
+    <style name="Theme.GravityWell" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/chassis_void</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.GravityWell.Main</item>
+    </style>
+
+    <!-- Post-splash app theme: dark instrument chassis behind first Compose frame. -->
+    <style name="Theme.GravityWell.Main" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/chassis_void</item>
+        <item name="android:colorBackground">@color/chassis_void</item>
+    </style>
+</resources>

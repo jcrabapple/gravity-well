@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Vernier Rig chassis & signal tokens (docs/creative/DIRECTION-gravity-well.md) -->
+    <color name="chassis_void">#0B0D10</color>
+    <color name="stratum_base">#101318</color>
+    <color name="signal_cyan">#38BDF8</color>
+</resources>
