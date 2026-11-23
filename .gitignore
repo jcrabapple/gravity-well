@@ -1,0 +1,35 @@
+# Python / Gateway
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# Secrets & runtime config
+*.env
+!*.env.example
+auth-token
+*.key
+*.pem
+key.properties
+**/*.jks
+**/*.keystore
+
+# Android / Gradle
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/build/
+android/app/build/
+android/captures/
+*.iml
+.idea/
+
+# Orchestration scratch
+.plan/reviews/
+*.log
