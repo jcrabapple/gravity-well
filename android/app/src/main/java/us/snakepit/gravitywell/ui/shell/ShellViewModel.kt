@@ -1,5 +1,6 @@
 package us.snakepit.gravitywell.ui.shell
 
+import android.content.Context
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Instant
@@ -30,15 +31,22 @@ import us.snakepit.gravitywell.net.WsConnectionState
 import us.snakepit.gravitywell.net.WsServerFrame
 import us.snakepit.gravitywell.net.WsTarget
 import us.snakepit.gravitywell.security.TokenVault
+import us.snakepit.gravitywell.service.AppForegroundTracker
+import us.snakepit.gravitywell.service.KeepaliveCoordinator
+import us.snakepit.gravitywell.service.KeepalivePreferences
 import us.snakepit.gravitywell.ui.console.SessionConsoleController
+import us.snakepit.gravitywell.ui.deck.ControlDeckController
+import us.snakepit.gravitywell.ui.deck.EcosystemApi
 import us.snakepit.gravitywell.ui.hosts.HostOnboardingController
+import us.snakepit.gravitywell.ui.observatory.ObservatoryApi
+import us.snakepit.gravitywell.ui.observatory.ObservatoryController
 import us.snakepit.gravitywell.ui.sessions.PermissionRuleDto
 import us.snakepit.gravitywell.ui.sessions.SessionBrowserController
 import us.snakepit.gravitywell.ui.sessions.SessionSupplementaryApi
 
 /**
  * Coordinates multi-host selection, shared OkHttp/WebSocket lifecycle, Session Browser,
- * and Live Session Console across the Adaptive Shell.
+ * Live Session Console, Observatory, Control Deck, and Keepalive across the Adaptive Shell.
  */
 class ShellController(
     private val cacheStore: OfflineCacheStore,
@@ -51,11 +59,29 @@ class ShellController(
     private val clientFactory: ((() -> String?) -> OkHttpClient) = { tokenProvider ->
         NetworkModule.createOkHttpClient(tokenProvider = tokenProvider, json = json)
     },
+    initialContext: Context? = null,
+    initialKeepalivePreferences: KeepalivePreferences? = null,
+    private val keepaliveServiceDriver: KeepaliveCoordinator.ServiceDriver = KeepaliveCoordinator.AndroidServiceDriver,
+    private val isForegroundProvider: () -> Boolean = { AppForegroundTracker.isAppInForeground },
 ) {
     private val preflightHttpClient: OkHttpClient by lazy { clientFactory { null } }
 
+    private var boundAppContext: Context? = initialContext?.applicationContext
+    private var keepalivePrefs: KeepalivePreferences = initialKeepalivePreferences
+        ?: initialContext?.let { KeepalivePreferences.get(it) }
+        ?: KeepalivePreferences.inMemory(true)
+    private var keepaliveCoordinator: KeepaliveCoordinator = KeepaliveCoordinator(
+        cacheStore = cacheStore,
+        preferences = keepalivePrefs,
+        isForegroundProvider = isForegroundProvider,
+        serviceController = keepaliveServiceDriver,
+    )
+
     private val _state = MutableStateFlow(ShellUiState())
     val state: StateFlow<ShellUiState> = _state.asStateFlow()
+
+    private val _keepaliveEnabled = MutableStateFlow(keepalivePrefs.isKeepaliveEnabled)
+    val keepaliveEnabled: StateFlow<Boolean> = _keepaliveEnabled.asStateFlow()
 
     private val _onboardingController = MutableStateFlow(createOnboardingController(null))
     val onboardingController: StateFlow<HostOnboardingController> = _onboardingController.asStateFlow()
@@ -66,21 +92,80 @@ class ShellController(
     private val _sessionConsoleController = MutableStateFlow<SessionConsoleController?>(null)
     val sessionConsoleController: StateFlow<SessionConsoleController?> = _sessionConsoleController.asStateFlow()
 
+    private val _observatoryController = MutableStateFlow<ObservatoryController?>(null)
+    val observatoryController: StateFlow<ObservatoryController?> = _observatoryController.asStateFlow()
+
+    private val _controlDeckController = MutableStateFlow<ControlDeckController?>(null)
+    val controlDeckController: StateFlow<ControlDeckController?> = _controlDeckController.asStateFlow()
+
     private val _deckRules = MutableStateFlow<List<PermissionRuleDto>>(emptyList())
     val deckRules: StateFlow<List<PermissionRuleDto>> = _deckRules.asStateFlow()
 
     private var activeHostClient: OkHttpClient? = null
     private var activeGatewayApi: GatewayApi? = null
     private var activeSupplementaryApi: SessionSupplementaryApi? = null
+    private var activeObservatoryApi: ObservatoryApi? = null
+    private var activeEcosystemApi: EcosystemApi? = null
     private var activeWsClient: GatewayWebSocketClient? = null
     private var wsCollectorJob: Job? = null
+    private var browserWatchJob: Job? = null
+    private var prefsWatchJob: Job? = null
     private var boundHostId: String? = null
     private var boundBaseUrl: String? = null
     private var boundLastVerifiedAt: String? = null
     private var boundTokenDigest: String? = null
+    private var deferredDeepLink: PendingDeepLink? = null
 
     init {
+        observeKeepalivePrefs()
         reloadHostsAndBindActive()
+    }
+
+    private fun observeKeepalivePrefs() {
+        prefsWatchJob?.cancel()
+        prefsWatchJob = scope.launch {
+            keepalivePrefs.keepaliveEnabled.collect { enabled ->
+                _keepaliveEnabled.value = enabled
+            }
+        }
+    }
+
+    fun bindApplicationContext(context: Context) {
+        val appCtx = context.applicationContext
+        if (boundAppContext === appCtx) {
+            keepalivePrefs.reload()
+            _keepaliveEnabled.value = keepalivePrefs.isKeepaliveEnabled
+            keepaliveCoordinator.syncServiceState(
+                context = boundAppContext,
+                host = _state.value.activeHost,
+                attachedSessionId = _state.value.attachedSessionId,
+            )
+            return
+        }
+        boundAppContext = appCtx
+        keepalivePrefs = KeepalivePreferences.get(appCtx)
+        keepaliveCoordinator = KeepaliveCoordinator(
+            cacheStore = cacheStore,
+            preferences = keepalivePrefs,
+            isForegroundProvider = isForegroundProvider,
+            serviceController = keepaliveServiceDriver,
+        )
+        observeKeepalivePrefs()
+        keepaliveCoordinator.syncServiceState(
+            context = boundAppContext,
+            host = _state.value.activeHost,
+            attachedSessionId = _state.value.attachedSessionId,
+        )
+    }
+
+    fun setKeepaliveEnabled(enabled: Boolean) {
+        keepaliveCoordinator.setKeepaliveEnabled(
+            context = boundAppContext,
+            enabled = enabled,
+            activeHost = _state.value.activeHost,
+            attachedSessionId = _state.value.attachedSessionId,
+        )
+        _keepaliveEnabled.value = keepalivePrefs.isKeepaliveEnabled
     }
 
     private fun createOnboardingController(targetHost: CachedHost?): HostOnboardingController =
@@ -133,6 +218,12 @@ class ShellController(
         if (shouldRebind) {
             bindHostRuntime(active)
         }
+
+        val pendingLink = deferredDeepLink
+        if (pendingLink != null) {
+            deferredDeepLink = null
+            consumeDeepLink(pendingLink)
+        }
     }
 
     private fun bindHostRuntime(host: CachedHost) {
@@ -143,14 +234,19 @@ class ShellController(
         boundBaseUrl = host.baseUrl
         boundLastVerifiedAt = host.lastVerifiedAt
         boundTokenDigest = digestToken(tokenVault.getToken(host.hostId))
+        AppForegroundTracker.setShellStreamActive(true)
 
         val okHttp = clientFactory { tokenVault.getToken(host.hostId) }
         val gwApi = NetworkModule.createGatewayApi(parsedBaseUrl, okHttp, json)
         val suppApi = SessionSupplementaryApi.create(parsedBaseUrl, okHttp, json)
+        val obsApi = ObservatoryApi.create(parsedBaseUrl, okHttp, json)
+        val ecoApi = EcosystemApi.create(parsedBaseUrl, okHttp, json)
 
         activeHostClient = okHttp
         activeGatewayApi = gwApi
         activeSupplementaryApi = suppApi
+        activeObservatoryApi = obsApi
+        activeEcosystemApi = ecoApi
 
         val browser = SessionBrowserController(
             host = host,
@@ -161,8 +257,41 @@ class ShellController(
             json = json,
         )
         _sessionBrowserController.value = browser
+
+        val observatory = ObservatoryController(
+            host = host,
+            api = obsApi,
+            cacheStore = cacheStore,
+            scope = scope,
+            json = json,
+        )
+        _observatoryController.value = observatory
+
+        val deck = ControlDeckController(
+            host = host,
+            ecosystemApi = ecoApi,
+            supplementaryApi = suppApi,
+            scope = scope,
+        )
+        _controlDeckController.value = deck
+
         browser.refresh()
         refreshDeckRules()
+        if (_state.value.destination == TopLevelDestination.OBSERVATORY) {
+            observatory.refreshAll()
+        } else if (_state.value.destination == TopLevelDestination.DECK) {
+            deck.refreshAll()
+        }
+
+        browserWatchJob = scope.launch {
+            browser.state.collect {
+                keepaliveCoordinator.syncServiceState(
+                    context = boundAppContext,
+                    host = host,
+                    attachedSessionId = _state.value.attachedSessionId,
+                )
+            }
+        }
 
         val ws = GatewayWebSocketClient(
             okHttpClient = okHttp,
@@ -198,6 +327,11 @@ class ShellController(
         if (!currentSessionId.isNullOrBlank()) {
             bindConsoleForSession(host, currentSessionId)
         }
+        keepaliveCoordinator.syncServiceState(
+            context = boundAppContext,
+            host = host,
+            attachedSessionId = currentSessionId,
+        )
     }
 
     private fun handleGlobalWsFrame(host: CachedHost, frame: WsServerFrame) {
@@ -214,16 +348,24 @@ class ShellController(
             is WsServerFrame.Event -> {
                 cacheStore.updateHostLastCursor(host.hostId, frame.cursor)
                 _state.update { it.copy(latestCursor = maxOf(it.latestCursor, frame.cursor)) }
+                val attachedSid = _state.value.attachedSessionId
                 val consoleCtrl = _sessionConsoleController.value
                 val isAttachedConsoleEvent = frame.sessionId != null &&
                     consoleCtrl != null &&
-                    (frame.sessionId == _state.value.attachedSessionId || frame.sessionId == consoleCtrl.state.value.session.sessionId)
+                    (frame.sessionId == attachedSid || frame.sessionId == consoleCtrl.state.value.session.sessionId)
                 if (isAttachedConsoleEvent) {
                     consoleCtrl.onWebSocketFrame(frame)
                 } else {
                     persistBackgroundSessionEvent(host, frame)
                 }
                 _sessionBrowserController.value?.onWebSocketFrame(frame)
+                _observatoryController.value?.onWebSocketFrame(frame)
+                keepaliveCoordinator.onWebSocketEvent(
+                    context = boundAppContext,
+                    host = host,
+                    attachedSessionId = attachedSid,
+                    frame = frame,
+                )
             }
             is WsServerFrame.ReplayComplete -> {
                 cacheStore.updateHostLastCursor(host.hostId, frame.latestCursor)
@@ -244,7 +386,6 @@ class ShellController(
         val sid = frame.sessionId ?: return
         val activeConsoleSid = _state.value.attachedSessionId
         if (sid == activeConsoleSid && _sessionConsoleController.value != null) {
-            // SessionConsoleController persists events for the actively attached session
             return
         }
         val existing = cacheStore.getSession(host.hostId, sid)
@@ -329,8 +470,15 @@ class ShellController(
 
     fun selectDestination(destination: TopLevelDestination) {
         _state.update { it.copy(destination = destination) }
-        if (destination == TopLevelDestination.DECK) {
-            refreshDeckRules()
+        when (destination) {
+            TopLevelDestination.OBSERVATORY -> {
+                _observatoryController.value?.refreshAll()
+            }
+            TopLevelDestination.DECK -> {
+                refreshDeckRules()
+                _controlDeckController.value?.refreshAll()
+            }
+            else -> Unit
         }
     }
 
@@ -340,9 +488,17 @@ class ShellController(
             it.copy(
                 attachedSessionId = sessionId,
                 destination = TopLevelDestination.CONSOLE,
+                showHostSwitcherSheet = false,
+                showAddHostModal = false,
+                reverifyHostTarget = null,
             )
         }
         bindConsoleForSession(host, sessionId)
+        keepaliveCoordinator.syncServiceState(
+            context = boundAppContext,
+            host = host,
+            attachedSessionId = sessionId,
+        )
     }
 
     fun exitCompactConsoleToSessions() {
@@ -359,20 +515,41 @@ class ShellController(
                 destination = TopLevelDestination.SESSIONS,
             )
         }
+        keepaliveCoordinator.syncServiceState(
+            context = boundAppContext,
+            host = _state.value.activeHost,
+            attachedSessionId = null,
+        )
     }
 
     fun consumeDeepLink(deepLink: PendingDeepLink) {
-        val targetHostId = deepLink.hostId
-        if (!targetHostId.isNullOrBlank() && targetHostId != _state.value.activeHost?.hostId) {
-            if (cacheStore.getHost(targetHostId) != null) {
-                cacheStore.setActiveHost(targetHostId)
-                _state.update { it.copy(attachedSessionId = deepLink.sessionId) }
+        val cleanSessionId = deepLink.sessionId.trim()
+        if (cleanSessionId.isEmpty()) return
+
+        if (!_state.value.initialized) {
+            deferredDeepLink = deepLink.copy(sessionId = cleanSessionId)
+            return
+        }
+
+        val targetHostId = deepLink.hostId?.trim()?.ifEmpty { null }
+        if (targetHostId != null) {
+            val matchedHost = cacheStore.getHost(targetHostId) ?: return
+            if (matchedHost.hostId != _state.value.activeHost?.hostId) {
+                cacheStore.setActiveHost(matchedHost.hostId)
+                _state.update {
+                    it.copy(
+                        attachedSessionId = cleanSessionId,
+                        destination = TopLevelDestination.CONSOLE,
+                        showHostSwitcherSheet = false,
+                        showAddHostModal = false,
+                        reverifyHostTarget = null,
+                    )
+                }
                 reloadHostsAndBindActive()
-                _state.update { it.copy(destination = TopLevelDestination.CONSOLE) }
                 return
             }
         }
-        openSessionInConsole(deepLink.sessionId)
+        openSessionInConsole(cleanSessionId)
     }
 
     // ── Host Switcher & Onboarding Modals ───────────────────────────────────
@@ -472,10 +649,15 @@ class ShellController(
     }
 
     fun shutdown() {
+        prefsWatchJob?.cancel()
+        prefsWatchJob = null
         teardownActiveHostRuntime()
     }
 
     private fun teardownActiveHostRuntime() {
+        AppForegroundTracker.setShellStreamActive(false)
+        browserWatchJob?.cancel()
+        browserWatchJob = null
         wsCollectorJob?.cancel()
         wsCollectorJob = null
         activeWsClient?.disconnect()
@@ -483,12 +665,16 @@ class ShellController(
         activeHostClient = null
         activeGatewayApi = null
         activeSupplementaryApi = null
+        activeObservatoryApi = null
+        activeEcosystemApi = null
         boundHostId = null
         boundBaseUrl = null
         boundLastVerifiedAt = null
         boundTokenDigest = null
         _sessionBrowserController.value = null
         _sessionConsoleController.value = null
+        _observatoryController.value = null
+        _controlDeckController.value = null
         _state.update { it.copy(wsState = WsConnectionState.Disconnected) }
     }
 

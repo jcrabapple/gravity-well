@@ -1,7 +1,6 @@
 package us.snakepit.gravitywell.ui.shell
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,10 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Speed
@@ -32,10 +29,10 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -43,19 +40,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import us.snakepit.gravitywell.cache.CachedHost
 import us.snakepit.gravitywell.net.WsConnectionState
+import us.snakepit.gravitywell.service.GravityWellNotifications
 import us.snakepit.gravitywell.theme.GravityWellTheme
 import us.snakepit.gravitywell.ui.console.ConsoleQuickAttachBay
 import us.snakepit.gravitywell.ui.console.SessionConsoleController
 import us.snakepit.gravitywell.ui.console.SessionConsoleScreen
+import us.snakepit.gravitywell.ui.deck.ControlDeckController
+import us.snakepit.gravitywell.ui.deck.ControlDeckScreen
 import us.snakepit.gravitywell.ui.hosts.HostOnboardingController
 import us.snakepit.gravitywell.ui.hosts.HostOnboardingScreen
 import us.snakepit.gravitywell.ui.hosts.HostSwitcherSheet
-import us.snakepit.gravitywell.ui.sessions.PermissionRuleDto
+import us.snakepit.gravitywell.ui.observatory.ObservatoryController
+import us.snakepit.gravitywell.ui.observatory.ObservatoryScreen
 import us.snakepit.gravitywell.ui.sessions.SessionBrowserController
 import us.snakepit.gravitywell.ui.sessions.SessionBrowserScreen
 
@@ -64,11 +66,18 @@ fun GravityWellAdaptiveShell(
     controller: ShellController,
     modifier: Modifier = Modifier,
 ) {
+    val appContext = LocalContext.current.applicationContext
+    LaunchedEffect(controller, appContext) {
+        controller.bindApplicationContext(appContext)
+    }
+
     val shellState by controller.state.collectAsState()
+    val keepaliveEnabled by controller.keepaliveEnabled.collectAsState()
     val onboardingCtrl by controller.onboardingController.collectAsState()
     val browserCtrl by controller.sessionBrowserController.collectAsState()
     val consoleCtrl by controller.sessionConsoleController.collectAsState()
-    val deckRules by controller.deckRules.collectAsState()
+    val observatoryCtrl by controller.observatoryController.collectAsState()
+    val deckCtrl by controller.controlDeckController.collectAsState()
 
     val colors = GravityWellTheme.colors
     val spacing = GravityWellTheme.spacing
@@ -210,20 +219,29 @@ fun GravityWellAdaptiveShell(
                             }
 
                             TopLevelDestination.OBSERVATORY -> {
-                                ObservatoryShellBay(
-                                    host = shellState.activeHost,
-                                    wsState = shellState.wsState,
-                                    latestCursor = shellState.latestCursor,
-                                )
+                                observatoryCtrl?.let { obsCtrl ->
+                                    BoundObservatoryPane(
+                                        controller = obsCtrl,
+                                        browserController = browserCtrl,
+                                        onOpenSessionInConsole = controller::openSessionInConsole,
+                                    )
+                                }
                             }
 
                             TopLevelDestination.DECK -> {
-                                DeckShellBay(
-                                    host = shellState.activeHost,
-                                    rules = deckRules,
-                                    onRevokeRule = controller::revokeDeckRule,
-                                    onOpenHostSwitcher = { controller.setShowHostSwitcher(true) },
-                                )
+                                deckCtrl?.let { dCtrl ->
+                                    BoundControlDeckPane(
+                                        controller = dCtrl,
+                                        hosts = shellState.hosts,
+                                        activeHost = shellState.activeHost,
+                                        keepaliveEnabled = keepaliveEnabled,
+                                        onSetKeepaliveEnabled = controller::setKeepaliveEnabled,
+                                        onSelectHost = controller::selectActiveHost,
+                                        onReverifyHost = controller::openReverifyHostModal,
+                                        onAddNewHost = controller::openAddHostModal,
+                                        onDeleteHost = controller::deleteHost,
+                                    )
+                                }
                             }
                         }
                     }
@@ -251,6 +269,112 @@ fun GravityWellAdaptiveShell(
             onDismiss = { controller.setShowHostSwitcher(false) },
         )
     }
+}
+
+@Composable
+private fun BoundObservatoryPane(
+    controller: ObservatoryController,
+    browserController: SessionBrowserController?,
+    onOpenSessionInConsole: (String) -> Unit,
+) {
+    val st by controller.state.collectAsState()
+    ObservatoryScreen(
+        state = st,
+        onRefreshAll = { controller.refreshAll(forceRefreshUsage = false) },
+        onRefreshUsageBypassCache = controller::refreshUsageBypassCache,
+        onUpdateDaemonNameDraft = controller::updateDaemonNameDraft,
+        onSetDaemonSessionScoped = controller::setDaemonSessionScoped,
+        onStartDaemon = controller::startRemoteControl,
+        onStopDaemon = controller::stopRemoteControl,
+        onOpenUpdateConfirmSheet = controller::openUpdateConfirmSheet,
+        onDismissUpdateConfirmSheet = controller::dismissUpdateConfirmSheet,
+        onConfirmAndRunUpdate = controller::confirmAndRunUpdate,
+        onSelectLogSource = controller::selectLogSource,
+        onSelectCrashFile = controller::selectCrashFile,
+        onSelectLogTail = controller::selectLogTail,
+        onUpdateLogSearchQuery = controller::updateLogSearchQuery,
+        onFetchLogsNow = controller::fetchLogsNow,
+        onSetShowExpandedLogSheet = controller::setShowExpandedLogSheet,
+        onOpenOrResumeExternalSession = { ext ->
+            if (ext.supervised) {
+                onOpenSessionInConsole(ext.sessionId)
+            } else {
+                browserController?.confirmResumeSession(
+                    sessionId = ext.sessionId,
+                    cwd = ext.cwd,
+                    loadHistory = true,
+                    onResumed = onOpenSessionInConsole,
+                )
+            }
+        },
+        onDismissErrorBanner = controller::dismissErrorBanner,
+    )
+}
+
+@Composable
+private fun BoundControlDeckPane(
+    controller: ControlDeckController,
+    hosts: List<CachedHost>,
+    activeHost: CachedHost?,
+    keepaliveEnabled: Boolean,
+    onSetKeepaliveEnabled: (Boolean) -> Unit,
+    onSelectHost: (String) -> Unit,
+    onReverifyHost: (CachedHost) -> Unit,
+    onAddNewHost: () -> Unit,
+    onDeleteHost: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val st by controller.state.collectAsState()
+    ControlDeckScreen(
+        state = st,
+        hosts = hosts,
+        activeHost = activeHost,
+        keepaliveEnabled = keepaliveEnabled,
+        onSelectTab = controller::selectTab,
+        onRefreshAll = controller::refreshAll,
+        onOpenAddMcpSheet = controller::openAddMcpSheet,
+        onDismissAddMcpSheet = controller::dismissAddMcpSheet,
+        onUpdateAddMcpForm = controller::updateAddMcpForm,
+        onSubmitAddMcp = controller::submitAddMcpServer,
+        onToggleMcpEnabled = controller::toggleMcpServerEnabled,
+        onRequestRemoveMcp = controller::requestRemoveMcpServer,
+        onCancelRemoveMcp = controller::cancelRemoveMcpServer,
+        onConfirmRemoveMcp = controller::confirmRemoveMcpServer,
+        onUpdatePluginTarget = controller::updatePluginTargetDraft,
+        onSetPluginStrict = controller::setPluginValidateStrict,
+        onValidatePlugin = controller::validatePluginTarget,
+        onInstallPlugin = controller::installPluginTarget,
+        onTogglePluginEnabled = controller::togglePluginEnabled,
+        onRequestUninstallPlugin = controller::requestUninstallPlugin,
+        onCancelUninstallPlugin = controller::cancelUninstallPlugin,
+        onConfirmUninstallPlugin = controller::confirmUninstallPlugin,
+        onOpenNewAgentSheet = controller::openNewAgentSheet,
+        onOpenEditAgentSheet = controller::openEditAgentSheet,
+        onDismissAgentEditor = controller::dismissAgentEditorSheet,
+        onUpdateAgentForm = controller::updateAgentForm,
+        onSubmitAgentForm = controller::submitAgentForm,
+        onRequestDeleteAgent = controller::requestDeleteAgent,
+        onCancelDeleteAgent = controller::cancelDeleteAgent,
+        onConfirmDeleteAgent = controller::confirmDeleteAgent,
+        onRefreshRules = controller::refreshPermissionRules,
+        onRevokeRule = controller::revokePermissionRule,
+        onToggleAllowlistedSetting = controller::updateAllowlistedSetting,
+        onSetDefaultModel = controller::updateGatewayDefaultModel,
+        onSetKeepaliveEnabled = onSetKeepaliveEnabled,
+        onOpenSystemNotificationSettings = { GravityWellNotifications.openSystemNotificationSettings(context) },
+        onSelectHost = onSelectHost,
+        onReverifyHost = onReverifyHost,
+        onAddNewHost = onAddNewHost,
+        onRequestDeleteHost = controller::requestDeleteHost,
+        onCancelDeleteHost = controller::cancelDeleteHost,
+        onConfirmDeleteHost = {
+            val target = controller.consumeDeleteHostTarget()
+            if (target != null) {
+                onDeleteHost(target)
+            }
+        },
+        onDismissBanners = controller::dismissBanners,
+    )
 }
 
 @Composable
@@ -416,7 +540,6 @@ fun VernierNavigationBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween,
             ) {
-                // 3.dp signalCyan top rail on active slot (zero rounded pill indicator)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -462,7 +585,6 @@ fun VernierNavigationRail(
             .selectableGroup(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Compact Top Host Switcher Badge
         Box(
             modifier = Modifier
                 .padding(vertical = spacing.sm)
@@ -598,153 +720,6 @@ fun PersistentHostTopBar(
                     style = type.monoMicro,
                     color = colors.inkMuted,
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ObservatoryShellBay(
-    host: CachedHost?,
-    wsState: WsConnectionState,
-    latestCursor: Long,
-) {
-    val colors = GravityWellTheme.colors
-    val type = GravityWellTheme.typography
-    val shapes = GravityWellTheme.shapes
-    val spacing = GravityWellTheme.spacing
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.chassisVoid)
-            .verticalScroll(rememberScrollState())
-            .padding(spacing.lg),
-        verticalArrangement = Arrangement.spacedBy(spacing.md),
-    ) {
-        Text("OBSERVATORY BAY", style = type.labelTelemetry, color = colors.signalCyan)
-        Text(
-            text = host?.label ?: "Host Telemetry",
-            style = type.headlineSection,
-            color = colors.inkPrimary,
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shapes.md)
-                .background(colors.stratumBase)
-                .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-                .padding(spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.xs),
-        ) {
-            Text("GATEWAY LINK", style = type.labelTelemetry, color = colors.inkSecondary)
-            Text(host?.baseUrl.orEmpty(), style = type.monoCode, color = colors.inkPrimary)
-            Text(
-                text = "Stream cursor #$latestCursor · ${wsState::class.simpleName ?: "Disconnected"}",
-                style = type.monoMicro,
-                color = wsDotColor(wsState),
-            )
-        }
-    }
-}
-
-@Composable
-private fun DeckShellBay(
-    host: CachedHost?,
-    rules: List<PermissionRuleDto>,
-    onRevokeRule: (String) -> Unit,
-    onOpenHostSwitcher: () -> Unit,
-) {
-    val colors = GravityWellTheme.colors
-    val type = GravityWellTheme.typography
-    val shapes = GravityWellTheme.shapes
-    val spacing = GravityWellTheme.spacing
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.chassisVoid)
-            .verticalScroll(rememberScrollState())
-            .padding(spacing.lg),
-        verticalArrangement = Arrangement.spacedBy(spacing.md),
-    ) {
-        Text("CONTROL DECK", style = type.labelTelemetry, color = colors.signalCyan)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Host & Workspace Rules",
-                style = type.headlineSection,
-                color = colors.inkPrimary,
-            )
-            OutlinedButton(
-                onClick = onOpenHostSwitcher,
-                shape = shapes.sm,
-                border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-            ) {
-                Text("MANAGE HOSTS", style = type.labelTelemetry, color = colors.signalCyan)
-            }
-        }
-
-        if (host != null) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(shapes.md)
-                    .background(colors.stratumBase)
-                    .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-                    .padding(spacing.md),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("ACTIVE HOST", style = type.labelTelemetry, color = colors.inkSecondary)
-                Text("${host.label} · agy v${host.agyVersion ?: "unknown"}", style = type.titleBar, color = colors.inkPrimary)
-                Text(host.defaultCwd ?: host.baseUrl, style = type.monoCode, color = colors.inkSecondary)
-            }
-        }
-
-        Text("WORKSPACE ALLOW-RULES", style = type.labelTelemetry, color = colors.signalAmber)
-        if (rules.isEmpty()) {
-            Text(
-                text = "Zero persistent workspace allow-rules active on this host.",
-                style = type.bodyCompact,
-                color = colors.inkMuted,
-            )
-        } else {
-            rules.forEach { rule ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(shapes.sm)
-                        .background(colors.stratumBase)
-                        .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-                        .padding(spacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "${rule.toolKind} · ${rule.commandPrefix.ifBlank { "*" }}",
-                            style = type.monoCode,
-                            color = colors.inkPrimary,
-                        )
-                        Text(
-                            text = rule.workspaceRoot,
-                            style = type.monoMicro,
-                            color = colors.inkSecondary,
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = { onRevokeRule(rule.ruleId) },
-                        shape = shapes.sm,
-                        border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
-                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                    ) {
-                        Text("Revoke", style = type.labelTelemetry, color = colors.signalCrimson)
-                    }
-                }
             }
         }
     }

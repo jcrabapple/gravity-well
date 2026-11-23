@@ -10,12 +10,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import kotlinx.coroutines.flow.MutableStateFlow
+import us.snakepit.gravitywell.service.AppForegroundTracker
+import us.snakepit.gravitywell.service.DeepLinkIntentQueue
 import us.snakepit.gravitywell.ui.shell.PendingDeepLink
 
 class MainActivity : ComponentActivity() {
 
-    private val pendingDeepLinkFlow = MutableStateFlow<PendingDeepLink?>(null)
+    internal val deepLinkQueue = DeepLinkIntentQueue()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -25,26 +26,50 @@ class MainActivity : ComponentActivity() {
         )
         super.onCreate(savedInstanceState)
 
-        enqueueIntentIfDeepLink(intent)
+        deepLinkQueue.restoreFromBundle(savedInstanceState)
+        enqueueAndClearDeepLinkExtras(intent)
 
         setContent {
-            val deepLink by pendingDeepLinkFlow.collectAsState()
+            val headDeepLink by deepLinkQueue.head.collectAsState()
             GravityWellApp(
-                pendingDeepLink = deepLink,
-                onDeepLinkConsumed = { pendingDeepLinkFlow.value = null },
+                pendingDeepLink = headDeepLink,
+                onDeepLinkConsumed = {
+                    val current = headDeepLink
+                    if (current != null) {
+                        deepLinkQueue.acknowledge(current)
+                    }
+                },
             )
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppForegroundTracker.onActivityStarted()
+    }
+
+    override fun onStop() {
+        AppForegroundTracker.onActivityStopped()
+        super.onStop()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        enqueueIntentIfDeepLink(intent)
+        enqueueAndClearDeepLinkExtras(intent)
     }
 
-    private fun enqueueIntentIfDeepLink(intent: Intent?) {
-        val parsed = extractDeepLink(intent) ?: return
-        pendingDeepLinkFlow.value = parsed
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        deepLinkQueue.saveToBundle(outState)
+    }
+
+    private fun enqueueAndClearDeepLinkExtras(targetIntent: Intent?) {
+        if (targetIntent == null) return
+        if (deepLinkQueue.enqueueIntent(targetIntent)) {
+            targetIntent.removeExtra(EXTRA_SESSION_ID)
+            targetIntent.removeExtra(EXTRA_HOST_ID)
+        }
     }
 
     companion object {
