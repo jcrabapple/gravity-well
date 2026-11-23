@@ -478,8 +478,19 @@ def test_ecosystem_settings_allowlist_and_atomic_preservation(
     _install_ecosystem_agy_shim(sandbox, tmp_path)
 
     settings_path = sandbox.gemini_dir / "settings.json"
+    mcp_env_key = "GITHUB_" + "TOKEN"
+    mcp_env_secret = "ghp_mcp_settings_secret_9876543210"
+    mcp_hdr_secret = "Bearer mcp_header_secret_abcdef012345"
     initial_settings = {
         "security": {"auth": {"selectedType": "oauth-personal", "token": "secret-do-not-expose"}},
+        "mcpServers": {
+            "github-mcp": {
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-github"],
+                "env": {mcp_env_key: mcp_env_secret},
+                "headers": {"Authorization": mcp_hdr_secret},
+            }
+        },
         "general": {"previewFeatures": True, "enablePromptCompletion": False},
         "customUntouched": {"keep": 42},
     }
@@ -487,7 +498,7 @@ def test_ecosystem_settings_allowlist_and_atomic_preservation(
 
     app = create_app(config=GatewayConfig.from_env())
     with TestClient(app) as tc:
-        # GET returns ONLY allowlisted keys
+        # GET returns ONLY allowlisted keys and NEVER exposes MCP env/headers secrets
         g_res = tc.get("/api/ecosystem/settings", headers=auth_headers)
         assert g_res.status_code == 200
         assert g_res.json()["settings"] == {
@@ -496,6 +507,9 @@ def test_ecosystem_settings_allowlist_and_atomic_preservation(
         assert "security" not in g_res.text
         assert "oauth-personal" not in g_res.text
         assert "secret-do-not-expose" not in g_res.text
+        assert "mcpServers" not in g_res.text
+        assert mcp_env_secret not in g_res.text
+        assert "mcp_header_secret_abcdef012345" not in g_res.text
         assert "customUntouched" not in g_res.text
 
         # Disallowed keys MUST return 403 Forbidden and never mutate disk
@@ -529,9 +543,13 @@ def test_ecosystem_settings_allowlist_and_atomic_preservation(
             "general": {"previewFeatures": True, "enablePromptCompletion": True}
         }
         assert "secret-do-not-expose" not in r_ok.text
+        assert "mcpServers" not in r_ok.text
+        assert mcp_env_secret not in r_ok.text
+        assert "mcp_header_secret_abcdef012345" not in r_ok.text
 
         on_disk = json.loads(settings_path.read_text(encoding="utf-8"))
         assert on_disk["security"] == initial_settings["security"]
+        assert on_disk["mcpServers"] == initial_settings["mcpServers"]
         assert on_disk["customUntouched"] == initial_settings["customUntouched"]
         assert on_disk["general"] == {"previewFeatures": True, "enablePromptCompletion": True}
         assert stat.S_IMODE(os.stat(settings_path).st_mode) == 0o600

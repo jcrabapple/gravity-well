@@ -631,6 +631,7 @@ class SessionSupervisor:
 
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[dict[str, Any]] = loop.create_future()
+        bound_turn_id = session.active_turn_id
         pending = PendingPermission(
             request_id=request_id,
             tool_call=tool_call,
@@ -653,9 +654,14 @@ class SessionSupervisor:
             return await fut
         finally:
             session.pending_permissions.pop(request_id, None)
-            if session.active_turn_id is not None and session.status == "awaiting_approval":
+            if (
+                bound_turn_id is not None
+                and session.active_turn_id == bound_turn_id
+                and session.status == "awaiting_approval"
+            ):
                 if session.pending_questions:
                     session.status = "awaiting_question"
+                    self._emit_session_event(session, "session_status", {"status": "awaiting_question"})
                 elif not session.pending_permissions:
                     session.status = "running"
                     self._emit_session_event(session, "session_status", {"status": "running"})
@@ -672,6 +678,7 @@ class SessionSupervisor:
         request_id = f"qst_{secrets.token_hex(8)}"
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[dict[str, Any]] = loop.create_future()
+        bound_turn_id = session.active_turn_id
         pending = PendingQuestion(
             request_id=request_id,
             mode=mode,
@@ -696,12 +703,56 @@ class SessionSupervisor:
             return await fut
         finally:
             session.pending_questions.pop(request_id, None)
-            if session.active_turn_id is not None and session.status == "awaiting_question":
+            if (
+                bound_turn_id is not None
+                and session.active_turn_id == bound_turn_id
+                and session.status == "awaiting_question"
+            ):
                 if session.pending_permissions:
                     session.status = "awaiting_approval"
+                    self._emit_session_event(session, "session_status", {"status": "awaiting_approval"})
                 elif not session.pending_questions:
                     session.status = "running"
                     self._emit_session_event(session, "session_status", {"status": "running"})
+
+    def _cancel_pending_gates(
+        self,
+        live: LiveSession,
+        reason: str = "cancelled",
+    ) -> None:
+        """Resolve and clear any pending permission/question gates on turn cancel or end."""
+        for req_id, perm in list(live.pending_permissions.items()):
+            live.pending_permissions.pop(req_id, None)
+            if not perm.future.done():
+                perm.future.set_result({"outcome": {"outcome": "cancelled"}})
+            self._emit_session_event(
+                live,
+                "permission_resolved",
+                {
+                    "request_id": req_id,
+                    "decision": reason,
+                    "option_id": None,
+                    "auto_approved": False,
+                    "rule_id": None,
+                },
+            )
+        live.pending_permissions.clear()
+
+        event_action = "cancelled" if reason == "cancelled" else reason
+        for req_id, qst in list(live.pending_questions.items()):
+            live.pending_questions.pop(req_id, None)
+            if not qst.future.done():
+                qst.future.set_result({"action": "cancel", "content": {}})
+            self._emit_session_event(
+                live,
+                "question_resolved",
+                {
+                    "request_id": req_id,
+                    "action": event_action,
+                    "answers": {},
+                },
+            )
+        live.pending_questions.clear()
 
     async def _on_session_exit(
         self,
@@ -1335,11 +1386,19 @@ class SessionSupervisor:
         prompt_blocks: list[dict[str, Any]],
         display_text: str,
         parts: list[dict[str, Any]] | None = None,
+        attachment_ids: Sequence[str] = (),
     ) -> None:
         live.active_turn_id = turn_id
         live.status = "running"
         live.turn_task = asyncio.create_task(
-            self._run_turn_loop(live, turn_id, prompt_blocks, display_text, parts)
+            self._run_turn_loop(
+                live,
+                turn_id,
+                prompt_blocks,
+                display_text,
+                parts,
+                list(attachment_ids),
+            )
         )
 
     async def _run_turn_loop(
@@ -1349,11 +1408,13 @@ class SessionSupervisor:
         initial_blocks: list[dict[str, Any]],
         initial_text: str,
         initial_parts: list[dict[str, Any]] | None,
+        initial_attachment_ids: list[str] | None = None,
     ) -> None:
         turn_id = initial_turn_id
         blocks = initial_blocks
         display_text = initial_text
         parts = initial_parts
+        current_attachment_ids = list(initial_attachment_ids or ())
 
         async with live.prompt_lock:
             while True:
@@ -1367,6 +1428,13 @@ class SessionSupervisor:
                 user_payload: dict[str, Any] = {"text": display_text}
                 if parts:
                     user_payload["parts"] = parts
+                if current_attachment_ids:
+                    att_meta = self._storage.describe_attachments(
+                        live.session_id,
+                        current_attachment_ids,
+                    )
+                    if att_meta:
+                        user_payload["attachments"] = att_meta
                 self._emit_session_event(live, "user_message_chunk", user_payload)
 
                 try:
@@ -1376,6 +1444,7 @@ class SessionSupervisor:
                         timeout=None,
                     )
                 except Exception as exc:
+                    self._cancel_pending_gates(live, reason="cancelled")
                     live.queue_paused = True
                     live.active_turn_id = None
                     if live.status not in ("closing", "closed"):
@@ -1395,6 +1464,7 @@ class SessionSupervisor:
                         )
                     return
 
+                self._cancel_pending_gates(live, reason="cancelled")
                 stop_reason = (
                     str(res.get("stopReason") or "end_turn")
                     if isinstance(res, dict)
@@ -1441,6 +1511,7 @@ class SessionSupervisor:
                         )
                         return
                     parts = None
+                    current_attachment_ids = list(next_item.attachment_ids)
                     turn_id = f"turn_{secrets.token_hex(8)}"
                     continue
 
@@ -1474,6 +1545,7 @@ class SessionSupervisor:
                         )
                         return
                     parts = None
+                    current_attachment_ids = list(next_item.attachment_ids)
                     turn_id = f"turn_{secrets.token_hex(8)}"
                     continue
 
@@ -1555,7 +1627,7 @@ class SessionSupervisor:
 
         live.queue_paused = False
         turn_id = f"turn_{secrets.token_hex(8)}"
-        self._start_turn_background(live, turn_id, blocks, display_text, parts)
+        self._start_turn_background(live, turn_id, blocks, display_text, parts, attachment_ids)
         return {
             "status": "started",
             "session_id": session_id,
@@ -1577,6 +1649,7 @@ class SessionSupervisor:
             "queue_updated",
             {"items": [i.to_dict() for i in live.queue], "paused": True},
         )
+        self._cancel_pending_gates(live, reason="cancelled")
         if live.active_turn_id is not None:
             try:
                 await live.acp.notify("session/cancel", {"sessionId": session_id})
@@ -1697,7 +1770,14 @@ class SessionSupervisor:
                 target.attachment_ids,
             )
             turn_id = f"turn_{secrets.token_hex(8)}"
-            self._start_turn_background(live, turn_id, blocks, display_text)
+            self._start_turn_background(
+                live,
+                turn_id,
+                blocks,
+                display_text,
+                None,
+                target.attachment_ids,
+            )
             return {
                 "status": "started",
                 "session_id": session_id,
@@ -1732,6 +1812,7 @@ class SessionSupervisor:
             "queue_updated",
             {"items": [i.to_dict() for i in live.queue], "paused": False},
         )
+        self._cancel_pending_gates(live, reason="cancelled")
         try:
             await live.acp.notify("session/cancel", {"sessionId": session_id})
         except Exception as exc:

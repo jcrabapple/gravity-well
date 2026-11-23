@@ -42,6 +42,12 @@ class GravityWellRuntime(
                 }
             }
         }
+
+        internal fun setForTest(testRuntime: GravityWellRuntime?) {
+            synchronized(this) {
+                instance = testRuntime
+            }
+        }
     }
 }
 

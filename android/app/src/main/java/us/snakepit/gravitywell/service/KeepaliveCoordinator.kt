@@ -96,6 +96,17 @@ class KeepaliveCoordinator(
         }
     }
 
+    private data class WatchSyncKey(
+        val hostId: String,
+        val attachedSessionId: String?,
+        val liveSessionCount: Int,
+        val awaitingGateCount: Int,
+        val keepaliveEnabled: Boolean,
+    )
+
+    @Volatile
+    private var lastSyncedKey: WatchSyncKey? = null
+
     fun computeWatchSnapshot(
         host: CachedHost,
         attachedSessionId: String? = null,
@@ -127,6 +138,7 @@ class KeepaliveCoordinator(
     ) {
         val ctx = context ?: return
         if (!preferences.isKeepaliveEnabled || host == null) {
+            lastSyncedKey = null
             serviceController.stopKeepalive(ctx)
             if (!preferences.isKeepaliveEnabled) {
                 serviceController.cancelAllNotifications(ctx)
@@ -134,6 +146,13 @@ class KeepaliveCoordinator(
             return
         }
         val snapshot = computeWatchSnapshot(host, attachedSessionId)
+        lastSyncedKey = WatchSyncKey(
+            hostId = snapshot.hostId,
+            attachedSessionId = snapshot.attachedSessionId,
+            liveSessionCount = snapshot.liveSessionCount,
+            awaitingGateCount = snapshot.awaitingGateCount,
+            keepaliveEnabled = preferences.isKeepaliveEnabled,
+        )
         if (snapshot.hasWatchedWork) {
             serviceController.startOrUpdateKeepalive(ctx, snapshot)
         } else {
@@ -256,10 +275,31 @@ class KeepaliveCoordinator(
                 }
             }
         }
-        syncServiceState(context, host, attachedSessionId)
+        if (frame.type in LIFECYCLE_OR_GATE_EVENTS) {
+            val snapshot = computeWatchSnapshot(host, attachedSessionId)
+            val key = WatchSyncKey(
+                hostId = snapshot.hostId,
+                attachedSessionId = snapshot.attachedSessionId,
+                liveSessionCount = snapshot.liveSessionCount,
+                awaitingGateCount = snapshot.awaitingGateCount,
+                keepaliveEnabled = preferences.isKeepaliveEnabled,
+            )
+            if (key != lastSyncedKey) {
+                syncServiceState(context, host, attachedSessionId)
+            }
+        }
     }
 
     companion object {
+        private val LIFECYCLE_OR_GATE_EVENTS = setOf(
+            "session_started",
+            "session_status",
+            "session_closed",
+            "permission_requested",
+            "permission_resolved",
+            "question_requested",
+            "question_resolved",
+        )
         fun extractPermissionSummary(payload: JsonObject): String {
             val toolObj = runCatching { payload["tool_call"]?.jsonObject }.getOrNull()
             val title = toolObj?.get("title")?.jsonPrimitive?.contentOrNull?.trim().orEmpty()

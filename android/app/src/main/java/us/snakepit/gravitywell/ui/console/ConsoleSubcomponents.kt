@@ -378,12 +378,12 @@ fun SwarmProgressStrip(
                 }
                 Row(
                     modifier = Modifier
-                        .defaultMinSize(minHeight = 28.dp)
+                        .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
                         .clip(shapes.sm)
                         .background(colors.stratumRaised)
                         .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
                         .clickable { onSelectWorker(w) }
-                        .padding(horizontal = spacing.sm, vertical = 2.dp),
+                        .padding(horizontal = spacing.sm, vertical = spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -402,6 +402,7 @@ fun SwarmProgressStrip(
 
 // ── Turn Stream Strata (Full-Bleed, Zero Chat Bubbles) ──────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun UserTurnStratum(item: LedgerItem.UserTurn) {
     val colors = GravityWellTheme.colors
@@ -440,6 +441,35 @@ fun UserTurnStratum(item: LedgerItem.UserTurn) {
                     style = type.bodyProse,
                     color = colors.inkPrimary,
                 )
+            }
+            if (item.attachmentLabels.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(spacing.xs),
+                ) {
+                    item.attachmentLabels.forEach { label ->
+                        Row(
+                            modifier = Modifier
+                                .background(colors.stratumRaised, CircleShape)
+                                .border(spacing.hairlineWidth, colors.hairline, CircleShape)
+                                .padding(horizontal = spacing.sm, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AttachFile,
+                                contentDescription = null,
+                                tint = colors.inkSecondary,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Text(
+                                text = label,
+                                style = type.monoMicro,
+                                color = colors.inkSecondary,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -942,23 +972,25 @@ fun DockedPermissionGateBar(
                     )
                 }
 
-                OutlinedButton(
-                    onClick = { onResolve("allow_rule", allowAlwaysOpt?.optionId) },
-                    shape = shapes.sm,
-                    border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = colors.stratumBase,
-                        contentColor = colors.signalCyan,
-                    ),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                ) {
-                    Column(horizontalAlignment = Alignment.Start) {
-                        Text("Allow Workspace Rule", style = type.labelTelemetry)
-                        Text(
-                            text = "Scoped to cwd · revocable in Deck",
-                            style = type.monoMicro,
-                            color = colors.inkSecondary,
-                        )
+                if (allowAlwaysOpt != null || permission.options.isEmpty()) {
+                    OutlinedButton(
+                        onClick = { onResolve("allow_rule", allowAlwaysOpt?.optionId) },
+                        shape = shapes.sm,
+                        border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = colors.stratumBase,
+                            contentColor = colors.signalCyan,
+                        ),
+                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                    ) {
+                        Column(horizontalAlignment = Alignment.Start) {
+                            Text("Allow Workspace Rule", style = type.labelTelemetry)
+                            Text(
+                                text = "Scoped to cwd · revocable in Deck",
+                                style = type.monoMicro,
+                                color = colors.inkSecondary,
+                            )
+                        }
                     }
                 }
 

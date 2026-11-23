@@ -200,6 +200,172 @@ def test_send_now_interrupts_active_turn_and_runs_target_item_first(
     assert item_a["item_id"] != item_b["item_id"]
 
 
+def _wait_status(
+    client: TestClient,
+    headers: dict[str, str],
+    sid: str,
+    targets: set[str],
+    timeout: float = 3.0,
+) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        snap = client.get(f"/api/sessions/{sid}", headers=headers).json()
+        if snap["status"] in targets:
+            return snap
+        time.sleep(0.02)
+    raise AssertionError(f"Session {sid} did not enter {targets} within {timeout}s")
+
+
+def test_cancel_and_send_now_clear_pending_permission_and_question_gates(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    sandbox: SandboxEnv,
+) -> None:
+    sid = client.post(
+        "/api/sessions",
+        headers=auth_headers,
+        json={"cwd": str(sandbox.workspace)},
+    ).json()["session_id"]
+
+    # 1(a) awaiting_approval -> POST /api/sessions/{id}/cancel
+    client.post(
+        f"/api/sessions/{sid}/prompt",
+        headers=auth_headers,
+        json={"text": "[ASK_PERMISSION:git push]"},
+    )
+    snap_perm = _wait_status(client, auth_headers, sid, {"awaiting_approval"})
+    assert len(snap_perm["pending_permissions"]) == 1
+    perm_req_id = snap_perm["pending_permissions"][0]["request_id"]
+
+    q_paused = client.post(
+        f"/api/sessions/{sid}/queue",
+        headers=auth_headers,
+        json={"text": "Queued while awaiting approval"},
+    ).json()
+
+    r_cancel_perm = client.post(f"/api/sessions/{sid}/cancel", headers=auth_headers)
+    assert r_cancel_perm.status_code == 202
+    _wait_idle(client, auth_headers, sid, timeout=2.5)
+
+    snap_after_perm_cancel = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+    assert snap_after_perm_cancel["pending_permissions"] == []
+    assert snap_after_perm_cancel["pending_questions"] == []
+    assert client.get(f"/api/sessions/{sid}/queue", headers=auth_headers).json()["paused"] is True
+
+    # Stale resolve against cancelled permission must 404
+    stale_perm = client.post(
+        f"/api/sessions/{sid}/permissions/{perm_req_id}",
+        headers=auth_headers,
+        json={"decision": "allow_once"},
+    )
+    assert stale_perm.status_code == 404
+
+    # 1(b) awaiting_question -> POST /api/sessions/{id}/cancel
+    assert client.delete(
+        f"/api/sessions/{sid}/queue/{q_paused['item_id']}",
+        headers=auth_headers,
+    ).status_code == 200
+
+    client.post(
+        f"/api/sessions/{sid}/prompt",
+        headers=auth_headers,
+        json={"text": "[ASK_QUESTION]"},
+    )
+    snap_q = _wait_status(client, auth_headers, sid, {"awaiting_question"})
+    assert len(snap_q["pending_questions"]) == 1
+    q_req_id = snap_q["pending_questions"][0]["request_id"]
+
+    r_cancel_q = client.post(f"/api/sessions/{sid}/cancel", headers=auth_headers)
+    assert r_cancel_q.status_code == 202
+    _wait_idle(client, auth_headers, sid, timeout=2.5)
+
+    snap_after_q_cancel = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+    assert snap_after_q_cancel["pending_permissions"] == []
+    assert snap_after_q_cancel["pending_questions"] == []
+
+    # 2(a) awaiting_approval -> send-now (interrupt=True) cancels gate and runs promoted prompt
+    client.post(
+        f"/api/sessions/{sid}/prompt",
+        headers=auth_headers,
+        json={"text": "[ASK_PERMISSION:npm publish]"},
+    )
+    snap_perm2 = _wait_status(client, auth_headers, sid, {"awaiting_approval"})
+    perm_req_id2 = snap_perm2["pending_permissions"][0]["request_id"]
+
+    sn_perm_item = client.post(
+        f"/api/sessions/{sid}/queue",
+        headers=auth_headers,
+        json={"text": "Promoted after permission interrupt"},
+    ).json()
+    sn_perm_res = client.post(
+        f"/api/sessions/{sid}/queue/{sn_perm_item['item_id']}/send-now",
+        headers=auth_headers,
+        json={"interrupt": True},
+    )
+    assert sn_perm_res.status_code == 202
+    assert sn_perm_res.json()["status"] == "interrupting"
+
+    _wait_idle(client, auth_headers, sid, timeout=2.5)
+    snap_after_sn_perm = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+    assert snap_after_sn_perm["pending_permissions"] == []
+    assert snap_after_sn_perm["pending_questions"] == []
+    assert snap_after_sn_perm["queued_followups"] == []
+
+    # 2(b) awaiting_question -> send-now (interrupt=True) cancels question gate and runs promoted prompt
+    client.post(
+        f"/api/sessions/{sid}/prompt",
+        headers=auth_headers,
+        json={"text": "[ASK_QUESTION]"},
+    )
+    snap_q2 = _wait_status(client, auth_headers, sid, {"awaiting_question"})
+    q_req_id2 = snap_q2["pending_questions"][0]["request_id"]
+
+    sn_q_item = client.post(
+        f"/api/sessions/{sid}/queue",
+        headers=auth_headers,
+        json={"text": "Promoted after question interrupt"},
+    ).json()
+    sn_q_res = client.post(
+        f"/api/sessions/{sid}/queue/{sn_q_item['item_id']}/send-now",
+        headers=auth_headers,
+        json={"interrupt": True},
+    )
+    assert sn_q_res.status_code == 202
+    assert sn_q_res.json()["status"] == "interrupting"
+
+    _wait_idle(client, auth_headers, sid, timeout=2.5)
+    snap_final = client.get(f"/api/sessions/{sid}", headers=auth_headers).json()
+    assert snap_final["pending_permissions"] == []
+    assert snap_final["pending_questions"] == []
+    assert snap_final["queued_followups"] == []
+
+    evs = client.get(f"/api/sessions/{sid}/events?after=0", headers=auth_headers).json()["events"]
+    perm_resolved = {
+        e["payload"]["request_id"]: e["payload"]
+        for e in evs
+        if e["type"] == "permission_resolved"
+    }
+    q_resolved = {
+        e["payload"]["request_id"]: e["payload"]
+        for e in evs
+        if e["type"] == "question_resolved"
+    }
+    assert perm_resolved[perm_req_id]["decision"] == "cancelled"
+    assert perm_resolved[perm_req_id2]["decision"] == "cancelled"
+    assert q_resolved[q_req_id]["action"] == "cancelled"
+    assert q_resolved[q_req_id2]["action"] == "cancelled"
+
+    thought_texts = "\n".join(
+        e["payload"]["text"] for e in evs if e["type"] == "agent_thought_chunk"
+    )
+    assert 'PERM_CANCEL_ACP:{"outcome": {"outcome": "cancelled"}}' in thought_texts
+    assert 'QUESTION_CANCEL_ACP:{"action": "cancel", "content": {}}' in thought_texts
+
+    agent_msgs = [e["payload"]["text"] for e in evs if e["type"] == "agent_message_chunk"]
+    assert "Echo: Promoted after permission interrupt" in agent_msgs
+    assert "Echo: Promoted after question interrupt" in agent_msgs
+
+
 def test_monotonic_cursor_seq_ws_replay_and_ring_buffer_truncation(
     sandbox: SandboxEnv,
     monkeypatch: pytest.MonkeyPatch,

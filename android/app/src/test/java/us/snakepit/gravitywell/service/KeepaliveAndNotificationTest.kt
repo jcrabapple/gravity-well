@@ -11,6 +11,7 @@ import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -37,9 +38,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import us.snakepit.gravitywell.GravityWellRuntime
 import us.snakepit.gravitywell.MainActivity
 import us.snakepit.gravitywell.cache.CachedHost
 import us.snakepit.gravitywell.cache.CachedPendingApproval
@@ -594,6 +597,251 @@ class KeepaliveAndNotificationTest {
             shell.shutdown()
         } finally {
             scope.cancel()
+            dbHelper.close()
+        }
+    }
+
+    @Test
+    fun `GravityWellKeepaliveService promotes to foreground before stopSelf on disabled keepalive missing host and zero watched work`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dbHelper = GravityWellDbHelper(context, File(tempFolder.root, "fgs_early_stop.db").absolutePath)
+        val cacheStore = OfflineCacheStore(dbHelper)
+        val tokenVault = TokenVault(File(tempFolder.root, "fgs_early_stop_vault.json"), TestAesGcmEngine())
+        val prefs = KeepalivePreferences.get(context)
+        GravityWellRuntime.setForTest(GravityWellRuntime(dbHelper, cacheStore, tokenVault))
+        AppForegroundTracker.setShellStreamActive(true)
+
+        try {
+            // Case 1: isKeepaliveEnabled = false
+            prefs.setKeepaliveEnabled(false)
+            val svcDisabled = Robolectric.buildService(GravityWellKeepaliveService::class.java).create().get()
+            svcDisabled.onStartCommand(
+                Intent(context, GravityWellKeepaliveService::class.java).apply {
+                    action = GravityWellKeepaliveService.ACTION_START_OR_UPDATE
+                },
+                0,
+                1,
+            )
+            assertEquals("Disabled keepalive must still promote before stopSelf", 1, svcDisabled.foregroundPromotionsForTest)
+            assertTrue("Disabled keepalive must stopSelf", shadowOf(svcDisabled).isStoppedBySelf)
+            assertFalse(GravityWellKeepaliveService.isRunning)
+            svcDisabled.onDestroy()
+
+            // Case 2: keepalive enabled, host == null
+            prefs.setKeepaliveEnabled(true)
+            val svcNoHost = Robolectric.buildService(GravityWellKeepaliveService::class.java).create().get()
+            svcNoHost.onStartCommand(
+                Intent(context, GravityWellKeepaliveService::class.java).apply {
+                    action = GravityWellKeepaliveService.ACTION_START_OR_UPDATE
+                },
+                0,
+                2,
+            )
+            assertEquals("Missing host must still promote before stopSelf", 1, svcNoHost.foregroundPromotionsForTest)
+            assertTrue("Missing host must stopSelf", shadowOf(svcNoHost).isStoppedBySelf)
+            assertFalse(GravityWellKeepaliveService.isRunning)
+            svcNoHost.onDestroy()
+
+            // Case 3: host present, liveCount == 0 && gateCount == 0
+            cacheStore.upsertHost(
+                CachedHost(
+                    hostId = "h_idle",
+                    label = "idle-host",
+                    baseUrl = "https://idle.example/",
+                    defaultCwd = "/tmp",
+                    isActive = true,
+                    createdAt = "2026-11-23T14:00:00Z",
+                    lastVerifiedAt = "2026-11-23T14:00:00Z",
+                ),
+            )
+            val svcZeroWork = Robolectric.buildService(GravityWellKeepaliveService::class.java).create().get()
+            svcZeroWork.onStartCommand(
+                Intent(context, GravityWellKeepaliveService::class.java).apply {
+                    action = GravityWellKeepaliveService.ACTION_START_OR_UPDATE
+                    putExtra(GravityWellKeepaliveService.EXTRA_HOST_ID, "h_idle")
+                },
+                0,
+                3,
+            )
+            assertEquals("Zero watched work must still promote before stopSelf", 1, svcZeroWork.foregroundPromotionsForTest)
+            assertTrue("Zero watched work must stopSelf", shadowOf(svcZeroWork).isStoppedBySelf)
+            assertFalse(GravityWellKeepaliveService.isRunning)
+            svcZeroWork.onDestroy()
+        } finally {
+            prefs.setKeepaliveEnabled(true)
+            AppForegroundTracker.setShellStreamActive(false)
+            GravityWellRuntime.setForTest(null)
+            dbHelper.close()
+        }
+    }
+
+    @Test
+    fun `KeepaliveCoordinator throttles streaming chunks and only syncs on lifecycle or count transitions`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dbHelper = GravityWellDbHelper(context, File(tempFolder.root, "coord_throttle.db").absolutePath)
+        val cacheStore = OfflineCacheStore(dbHelper)
+        val prefs = KeepalivePreferences.inMemory(initialEnabled = true)
+        val startOrUpdateCalls = AtomicInteger(0)
+
+        val driver = object : KeepaliveCoordinator.ServiceDriver {
+            override fun startOrUpdateKeepalive(context: Context, snapshot: KeepaliveWatchSnapshot) {
+                startOrUpdateCalls.incrementAndGet()
+            }
+            override fun stopKeepalive(context: Context) = Unit
+            override fun postGateAlert(
+                context: Context,
+                hostId: String,
+                sessionId: String,
+                sessionTitle: String,
+                requestId: String,
+                kind: String,
+                summary: String,
+            ) = Unit
+            override fun cancelGateAlert(context: Context, hostId: String, sessionId: String, requestId: String) = Unit
+            override fun cancelAllNotifications(context: Context) = Unit
+        }
+
+        try {
+            val h1 = CachedHost(
+                hostId = "h1",
+                label = "aurora-1",
+                baseUrl = "https://aurora1.tail.ts.net/",
+                defaultCwd = "/home/jason",
+                isActive = true,
+                createdAt = "2026-11-23T14:00:00Z",
+                lastVerifiedAt = "2026-11-23T14:00:00Z",
+            )
+            cacheStore.upsertHost(h1)
+            cacheStore.upsertSession(
+                CachedSession(
+                    hostId = "h1",
+                    sessionId = "s_stream",
+                    title = "Stream",
+                    cwd = "/home/jason",
+                    status = "running",
+                    isLive = true,
+                    updatedAt = "2026-11-23T15:00:00Z",
+                ),
+            )
+            val coordinator = KeepaliveCoordinator(
+                cacheStore = cacheStore,
+                preferences = prefs,
+                isForegroundProvider = { true },
+                serviceController = driver,
+            )
+
+            coordinator.syncServiceState(context, h1, attachedSessionId = "s_stream")
+            assertEquals(1, startOrUpdateCalls.get())
+
+            // 30 high-frequency streaming chunks must NOT trigger startOrUpdateKeepalive
+            for (i in 1..30) {
+                val type = if (i % 2 == 0) "agent_thought_chunk" else "agent_message_chunk"
+                coordinator.onWebSocketEvent(
+                    context = context,
+                    host = h1,
+                    attachedSessionId = "s_stream",
+                    frame = WsServerFrame.Event(
+                        cursor = i.toLong(),
+                        seq = i.toLong(),
+                        sessionId = "s_stream",
+                        type = type,
+                        ts = "2026-11-23T15:01:00Z",
+                        payload = buildJsonObject { put("text", "chunk $i") },
+                    ),
+                )
+            }
+            assertEquals("Streaming chunks must not invoke startOrUpdateKeepalive", 1, startOrUpdateCalls.get())
+
+            // Lifecycle / gate change (awaitingGateCount 0 -> 1) DOES sync once
+            coordinator.onWebSocketEvent(
+                context = context,
+                host = h1,
+                attachedSessionId = null,
+                frame = WsServerFrame.Event(
+                    cursor = 31L,
+                    seq = 31L,
+                    sessionId = "s_stream",
+                    type = "permission_requested",
+                    ts = "2026-11-23T15:01:10Z",
+                    payload = buildJsonObject {
+                        put("request_id", "req_gate_1")
+                        put("tool_call", buildJsonObject { put("kind", "execute"); put("title", "ls") })
+                    },
+                ),
+            )
+            assertEquals("Gate count transition must sync once", 2, startOrUpdateCalls.get())
+        } finally {
+            dbHelper.close()
+        }
+    }
+
+    @Test
+    fun `GravityWellKeepaliveService reactively connects and tears down fallback WS on shellStreamActiveFlow transitions`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dbHelper = GravityWellDbHelper(context, File(tempFolder.root, "fgs_handoff.db").absolutePath)
+        val cacheStore = OfflineCacheStore(dbHelper)
+        val tokenVault = TokenVault(File(tempFolder.root, "fgs_handoff_vault.json"), TestAesGcmEngine())
+        val prefs = KeepalivePreferences.get(context)
+        prefs.setKeepaliveEnabled(true)
+        GravityWellRuntime.setForTest(GravityWellRuntime(dbHelper, cacheStore, tokenVault))
+        AppForegroundTracker.setShellStreamActive(true)
+
+        val h1 = CachedHost(
+            hostId = "h_handoff",
+            label = "aurora-handoff",
+            baseUrl = "http://127.0.0.1:1/",
+            defaultCwd = "/home/jason",
+            isActive = true,
+            createdAt = "2026-11-23T14:00:00Z",
+            lastVerifiedAt = "2026-11-23T14:00:00Z",
+        )
+        cacheStore.upsertHost(h1)
+        tokenVault.putToken("h_handoff", "gw_tok_handoff")
+        cacheStore.upsertSession(
+            CachedSession(
+                hostId = "h_handoff",
+                sessionId = "s_handoff",
+                title = "Handoff Session",
+                cwd = "/home/jason",
+                status = "running",
+                isLive = true,
+                updatedAt = "2026-11-23T15:00:00Z",
+            ),
+        )
+
+        val service = Robolectric.buildService(GravityWellKeepaliveService::class.java).create().get()
+        try {
+            service.onStartCommand(
+                Intent(context, GravityWellKeepaliveService::class.java).apply {
+                    action = GravityWellKeepaliveService.ACTION_START_OR_UPDATE
+                    putExtra(GravityWellKeepaliveService.EXTRA_HOST_ID, "h_handoff")
+                },
+                0,
+                1,
+            )
+            assertTrue(GravityWellKeepaliveService.isRunning)
+            assertFalse("Fallback WS must stay inactive while shellStreamActive is true", service.isFallbackWsActive)
+
+            // Transition shellStreamActive true -> false WITHOUT a second onStartCommand
+            AppForegroundTracker.setShellStreamActive(false)
+            val activateDeadline = System.currentTimeMillis() + 3_000L
+            while (!service.isFallbackWsActive && System.currentTimeMillis() < activateDeadline) {
+                Thread.sleep(20L)
+            }
+            assertTrue("Fallback WS must activate reactively when shellStreamActive becomes false", service.isFallbackWsActive)
+
+            // Transition shellStreamActive false -> true tears down fallback WS
+            AppForegroundTracker.setShellStreamActive(true)
+            val teardownDeadline = System.currentTimeMillis() + 3_000L
+            while (service.isFallbackWsActive && System.currentTimeMillis() < teardownDeadline) {
+                Thread.sleep(20L)
+            }
+            assertFalse("Fallback WS must tear down reactively when shellStreamActive becomes true", service.isFallbackWsActive)
+        } finally {
+            service.onDestroy()
+            AppForegroundTracker.setShellStreamActive(false)
+            GravityWellRuntime.setForTest(null)
+            prefs.setKeepaliveEnabled(true)
             dbHelper.close()
         }
     }

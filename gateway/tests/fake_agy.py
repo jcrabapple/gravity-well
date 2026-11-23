@@ -198,6 +198,29 @@ class FakeAcpServer:
                         ],
                     },
                 )
+                await asyncio.sleep(0.01)
+                if cancel_ev.is_set():
+                    await self.send_update(
+                        sid,
+                        {
+                            "sessionUpdate": "agent_thought_chunk",
+                            "content": {
+                                "type": "text",
+                                "text": f"PERM_CANCEL_ACP:{json.dumps(perm_res, sort_keys=True)}",
+                            },
+                        },
+                    )
+                    await self.send(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": rpc_id,
+                            "result": {
+                                "stopReason": "cancelled",
+                                "usage": {"inputTokens": 10, "outputTokens": 2, "totalTokens": 12},
+                            },
+                        }
+                    )
+                    return
                 reply_text = f"PERMISSION_OUTCOME:{json.dumps(perm_res, sort_keys=True)}"
             elif "[ASK_QUESTION]" in full_text:
                 q_res = await self.request_client(
@@ -220,6 +243,29 @@ class FakeAcpServer:
                         },
                     },
                 )
+                await asyncio.sleep(0.01)
+                if cancel_ev.is_set():
+                    await self.send_update(
+                        sid,
+                        {
+                            "sessionUpdate": "agent_thought_chunk",
+                            "content": {
+                                "type": "text",
+                                "text": f"QUESTION_CANCEL_ACP:{json.dumps(q_res, sort_keys=True)}",
+                            },
+                        },
+                    )
+                    await self.send(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": rpc_id,
+                            "result": {
+                                "stopReason": "cancelled",
+                                "usage": {"inputTokens": 10, "outputTokens": 2, "totalTokens": 12},
+                            },
+                        }
+                    )
+                    return
                 reply_text = f"QUESTION_OUTCOME:{json.dumps(q_res, sort_keys=True)}"
             elif "[LARGE_FRAME]" in full_text:
                 big_diff = "+" + ("x" * (140 * 1024))

@@ -153,6 +153,37 @@ class ConsoleEnginesAndControllerTest {
     }
 
     @Test
+    fun `stream reducer parses user attachment labels with fallback order and distinct merge`() {
+        var state = ReducedSessionState(sessionId = "s_att")
+        state = ConsoleStreamReducer.applyEvent(
+            state,
+            seq = 1L,
+            cursor = 1L,
+            type = "user_message_chunk",
+            ts = "2026-11-23T15:05:00Z",
+            payload = Json.parseToJsonElement(
+                """{"text":"Inspect ","attachments":[{"filename":"shot.png","name":"ignored"},{"name":"notes.txt"},{"label":"doc.pdf"},{"attachment_id":"att_1234567890abcdef"}]}""",
+            ).jsonObject,
+        )
+        state = ConsoleStreamReducer.applyEvent(
+            state,
+            seq = 2L,
+            cursor = 2L,
+            type = "user_message_chunk",
+            ts = "2026-11-23T15:05:00Z",
+            payload = Json.parseToJsonElement(
+                """{"text":"these","attachments":[{"filename":"shot.png"},{"attachment_id":"att_extra"}]}""",
+            ).jsonObject,
+        )
+        val userTurn = state.ledger.single() as LedgerItem.UserTurn
+        assertEquals("Inspect these", userTurn.text)
+        assertEquals(
+            listOf("shot.png", "notes.txt", "doc.pdf", "att_1234567890abcdef", "att_extra"),
+            userTurn.attachmentLabels,
+        )
+    }
+
+    @Test
     fun `diff engine parses unified and before-after hunks with word-level LCS spans`() {
         val rawUnified = """
             --- a/gateway/auth.py
@@ -600,6 +631,68 @@ class ConsoleEnginesAndControllerTest {
             "Stale pending_approvals must be pruned when absent from snapshot",
             cacheStore.listPendingApprovals("h1", "sess_resync").isEmpty(),
         )
+    }
+
+    @Test
+    fun `stream reducer parses and deduplicates attachment labels on user_message_chunk`() {
+        var state = ReducedSessionState(sessionId = "s_att")
+        state = ConsoleStreamReducer.applyEvent(
+            state,
+            seq = 1L,
+            cursor = 1L,
+            type = "user_message_chunk",
+            ts = "2026-11-23T15:10:00Z",
+            payload = Json.parseToJsonElement(
+                """{"text":"Inspect files","attachments":[{"filename":"a.png"},{"name":"b.txt"},{"label":"c.md"},{"attachment_id":"att_1234567890abcdef"},{"filename":"a.png"}]}""",
+            ).jsonObject,
+        )
+        state = ConsoleStreamReducer.applyEvent(
+            state,
+            seq = 2L,
+            cursor = 2L,
+            type = "user_message_chunk",
+            ts = "2026-11-23T15:10:00Z",
+            payload = Json.parseToJsonElement(
+                """{"text":" please","attachments":[{"attachment_id":"att_1234567890abcdef"},{"filename":"d.log"}]}""",
+            ).jsonObject,
+        )
+
+        val turn = state.ledger.single() as LedgerItem.UserTurn
+        assertEquals("Inspect files please", turn.text)
+        assertEquals(
+            listOf("a.png", "b.txt", "c.md", "att_1234567890abcdef", "d.log"),
+            turn.attachmentLabels,
+        )
+    }
+
+    @Test
+    fun `mergeSnapshot ignores stale cursor overwrite on volatile status gates and queue`() {
+        val current = ReducedSessionState(
+            sessionId = "s_guard",
+            title = "Live",
+            status = "running",
+            isLive = true,
+            lastCursor = 50L,
+            lastSeq = 10L,
+        )
+        val stale = us.snakepit.gravitywell.net.SessionSnapshotDto(
+            sessionId = "s_guard",
+            title = "Live",
+            status = "idle",
+            isLive = false,
+            cursor = 40L,
+            seq = 8L,
+        )
+        val afterStale = ConsoleStreamReducer.mergeSnapshot(current, stale)
+        assertEquals("running", afterStale.status)
+        assertTrue(afterStale.isLive)
+        assertEquals(50L, afterStale.lastCursor)
+
+        val newer = stale.copy(status = "idle", isLive = false, cursor = 55L, seq = 11L)
+        val afterNewer = ConsoleStreamReducer.mergeSnapshot(afterStale, newer)
+        assertEquals("idle", afterNewer.status)
+        assertFalse(afterNewer.isLive)
+        assertEquals(55L, afterNewer.lastCursor)
     }
 
     private suspend fun awaitCondition(timeoutMs: Long = 3_000L, predicate: () -> Boolean) {

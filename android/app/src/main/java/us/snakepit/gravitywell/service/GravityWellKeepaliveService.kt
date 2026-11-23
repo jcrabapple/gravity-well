@@ -34,9 +34,18 @@ import us.snakepit.gravitywell.net.WsTarget
 class GravityWellKeepaliveService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val fallbackLock = Any()
     private var fallbackWsClient: GatewayWebSocketClient? = null
     private var fallbackWsJob: Job? = null
     private var fallbackBoundHostId: String? = null
+    private var shellStreamObserverJob: Job? = null
+    @Volatile private var activeHost: CachedHost? = null
+    @Volatile private var activeRuntime: GravityWellRuntime? = null
+    @Volatile internal var foregroundPromotionsForTest: Int = 0
+        private set
+
+    internal val isFallbackWsActive: Boolean
+        get() = synchronized(fallbackLock) { fallbackWsClient != null }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -44,6 +53,7 @@ class GravityWellKeepaliveService : Service() {
         val action = intent?.action
         val prefs = KeepalivePreferences.get(applicationContext)
         if (action == ACTION_STOP || !prefs.isKeepaliveEnabled) {
+            ensureForegroundBeforeStop()
             stopKeepaliveSelf()
             return START_NOT_STICKY
         }
@@ -53,6 +63,7 @@ class GravityWellKeepaliveService : Service() {
             ?: runtime.cacheStore.getActiveHost()?.hostId
         val host = hostId?.let { runtime.cacheStore.getHost(it) } ?: runtime.cacheStore.getActiveHost()
         if (host == null) {
+            ensureForegroundBeforeStop()
             stopKeepaliveSelf()
             return START_NOT_STICKY
         }
@@ -70,6 +81,13 @@ class GravityWellKeepaliveService : Service() {
         val hostLabel = intent?.getStringExtra(EXTRA_HOST_LABEL)?.ifBlank { null } ?: host.label
 
         if (liveCount <= 0 && gateCount <= 0) {
+            ensureForegroundBeforeStop(
+                hostId = host.hostId,
+                hostLabel = hostLabel,
+                attachedSessionId = attachedSessionId,
+                liveCount = 0,
+                gateCount = 0,
+            )
             stopKeepaliveSelf()
             return START_NOT_STICKY
         }
@@ -90,19 +108,18 @@ class GravityWellKeepaliveService : Service() {
         }
 
         try {
-            ServiceCompat.startForeground(
-                this,
-                GravityWellNotifications.NOTIFICATION_ID_KEEPALIVE,
-                notification,
-                fgsType,
-            )
+            promoteToForeground(notification, fgsType)
             runningFlag.set(true)
+            activeStartedHostId = host.hostId
         } catch (_: Exception) {
             stopKeepaliveSelf()
             return START_NOT_STICKY
         }
 
-        // Maintain a fallback background WebSocket only when ShellController is not active
+        // Maintain a fallback background WebSocket whenever ShellController stream is not active
+        activeHost = host
+        activeRuntime = runtime
+        ensureShellStreamObserver()
         if (AppForegroundTracker.isShellStreamActive) {
             teardownFallbackWs()
         } else {
@@ -112,48 +129,106 @@ class GravityWellKeepaliveService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun ensureFallbackWsConnected(host: CachedHost, runtime: GravityWellRuntime) {
-        if (fallbackWsClient != null && fallbackBoundHostId == host.hostId) return
-        teardownFallbackWs()
-        val parsedBaseUrl = host.baseUrl.toHttpUrlOrNull() ?: return
-        val okHttp = NetworkModule.createOkHttpClient(
-            tokenProvider = { runtime.tokenVault.getToken(host.hostId) },
-        )
-        val ws = GatewayWebSocketClient(
-            okHttpClient = okHttp,
-            baseUrl = parsedBaseUrl,
-            tokenProvider = { runtime.tokenVault.getToken(host.hostId).orEmpty() },
-            target = WsTarget.Global,
-            scope = serviceScope,
-            initialCursor = host.lastCursor,
-        )
-        fallbackBoundHostId = host.hostId
-        fallbackWsClient = ws
-
-        val coordinator = KeepaliveCoordinator(
-            cacheStore = runtime.cacheStore,
-            preferences = KeepalivePreferences.get(applicationContext),
-        )
-
-        fallbackWsJob = serviceScope.launch {
-            ws.frames.collect { frame ->
-                if (AppForegroundTracker.isShellStreamActive) {
-                    teardownFallbackWs()
-                    return@collect
-                }
-                if (frame is WsServerFrame.Event) {
-                    runtime.cacheStore.updateHostLastCursor(host.hostId, frame.cursor)
-                    persistFallbackSessionState(runtime, host, frame)
-                    coordinator.onWebSocketEvent(
-                        context = applicationContext,
-                        host = host,
-                        attachedSessionId = null,
-                        frame = frame,
-                    )
+    private fun ensureShellStreamObserver() {
+        synchronized(fallbackLock) {
+            if (shellStreamObserverJob?.isActive == true) return
+            shellStreamObserverJob = serviceScope.launch {
+                AppForegroundTracker.shellStreamActiveFlow.collect { active ->
+                    if (active) {
+                        teardownFallbackWs()
+                    } else if (runningFlag.get()) {
+                        val host = activeHost
+                        val runtime = activeRuntime
+                        if (host != null && runtime != null) {
+                            ensureFallbackWsConnected(host, runtime)
+                        }
+                    }
                 }
             }
         }
-        ws.connect(afterCursor = if (host.lastCursor > 0L) host.lastCursor else null)
+    }
+
+    private fun ensureForegroundBeforeStop(
+        hostId: String = activeStartedHostId ?: "keepalive",
+        hostLabel: String = activeHost?.label ?: "Gravity Well",
+        attachedSessionId: String? = null,
+        liveCount: Int = 0,
+        gateCount: Int = 0,
+    ) {
+        val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        } else {
+            0
+        }
+        val notification = GravityWellNotifications.buildOngoingNotification(
+            context = this,
+            hostId = hostId,
+            hostLabel = hostLabel,
+            attachedSessionId = attachedSessionId,
+            liveSessionCount = liveCount,
+            awaitingGateCount = gateCount,
+        )
+        runCatching {
+            promoteToForeground(notification, fgsType)
+        }
+    }
+
+    private fun promoteToForeground(notification: android.app.Notification, fgsType: Int) {
+        ServiceCompat.startForeground(
+            this,
+            GravityWellNotifications.NOTIFICATION_ID_KEEPALIVE,
+            notification,
+            fgsType,
+        )
+        foregroundPromotionsForTest += 1
+    }
+
+    private fun ensureFallbackWsConnected(host: CachedHost, runtime: GravityWellRuntime) {
+        val wsToConnect: GatewayWebSocketClient
+        synchronized(fallbackLock) {
+            if (fallbackWsClient != null && fallbackBoundHostId == host.hostId) return
+            teardownFallbackWsLocked()
+            val parsedBaseUrl = host.baseUrl.toHttpUrlOrNull() ?: return
+            val okHttp = NetworkModule.createOkHttpClient(
+                tokenProvider = { runtime.tokenVault.getToken(host.hostId) },
+            )
+            val ws = GatewayWebSocketClient(
+                okHttpClient = okHttp,
+                baseUrl = parsedBaseUrl,
+                tokenProvider = { runtime.tokenVault.getToken(host.hostId).orEmpty() },
+                target = WsTarget.Global,
+                scope = serviceScope,
+                initialCursor = host.lastCursor,
+            )
+            fallbackBoundHostId = host.hostId
+            fallbackWsClient = ws
+
+            val coordinator = KeepaliveCoordinator(
+                cacheStore = runtime.cacheStore,
+                preferences = KeepalivePreferences.get(applicationContext),
+            )
+
+            fallbackWsJob = serviceScope.launch {
+                ws.frames.collect { frame ->
+                    if (AppForegroundTracker.isShellStreamActive) {
+                        teardownFallbackWs()
+                        return@collect
+                    }
+                    if (frame is WsServerFrame.Event) {
+                        runtime.cacheStore.updateHostLastCursor(host.hostId, frame.cursor)
+                        persistFallbackSessionState(runtime, host, frame)
+                        coordinator.onWebSocketEvent(
+                            context = applicationContext,
+                            host = host,
+                            attachedSessionId = null,
+                            frame = frame,
+                        )
+                    }
+                }
+            }
+            wsToConnect = ws
+        }
+        wsToConnect.connect(afterCursor = if (host.lastCursor > 0L) host.lastCursor else null)
     }
 
     private fun persistFallbackSessionState(
@@ -190,6 +265,12 @@ class GravityWellKeepaliveService : Service() {
     }
 
     private fun teardownFallbackWs() {
+        synchronized(fallbackLock) {
+            teardownFallbackWsLocked()
+        }
+    }
+
+    private fun teardownFallbackWsLocked() {
         fallbackWsJob?.cancel()
         fallbackWsJob = null
         fallbackWsClient?.disconnect()
@@ -199,7 +280,14 @@ class GravityWellKeepaliveService : Service() {
 
     private fun stopKeepaliveSelf() {
         runningFlag.set(false)
-        teardownFallbackWs()
+        activeStartedHostId = null
+        activeHost = null
+        activeRuntime = null
+        synchronized(fallbackLock) {
+            shellStreamObserverJob?.cancel()
+            shellStreamObserverJob = null
+            teardownFallbackWsLocked()
+        }
         runCatching {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         }
@@ -209,7 +297,14 @@ class GravityWellKeepaliveService : Service() {
 
     override fun onDestroy() {
         runningFlag.set(false)
-        teardownFallbackWs()
+        activeStartedHostId = null
+        activeHost = null
+        activeRuntime = null
+        synchronized(fallbackLock) {
+            shellStreamObserverJob?.cancel()
+            shellStreamObserverJob = null
+            teardownFallbackWsLocked()
+        }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -225,6 +320,7 @@ class GravityWellKeepaliveService : Service() {
         const val EXTRA_GATE_COUNT = "us.snakepit.gravitywell.extra.KEEPALIVE_GATE_COUNT"
 
         private val runningFlag = AtomicBoolean(false)
+        @Volatile private var activeStartedHostId: String? = null
 
         val isRunning: Boolean
             get() = runningFlag.get()
@@ -246,7 +342,7 @@ class GravityWellKeepaliveService : Service() {
                 putExtra(EXTRA_GATE_COUNT, snapshot.awaitingGateCount)
             }
             if (runningFlag.get()) {
-                // Already in foreground: update ongoing notification directly + deliver updated intent
+                // Already in foreground: update ongoing notification directly
                 GravityWellNotifications.postOngoingNotification(
                     context = appCtx,
                     hostId = snapshot.hostId,
@@ -255,6 +351,9 @@ class GravityWellKeepaliveService : Service() {
                     liveSessionCount = snapshot.liveSessionCount,
                     awaitingGateCount = snapshot.awaitingGateCount,
                 )
+                if (activeStartedHostId == snapshot.hostId) {
+                    return
+                }
             }
             try {
                 ContextCompat.startForegroundService(appCtx, intent)
@@ -275,6 +374,7 @@ class GravityWellKeepaliveService : Service() {
         fun stop(context: Context) {
             val appCtx = context.applicationContext
             runningFlag.set(false)
+            activeStartedHostId = null
             runCatching {
                 appCtx.stopService(Intent(appCtx, GravityWellKeepaliveService::class.java))
             }

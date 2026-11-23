@@ -848,6 +848,31 @@ class StorageManager:
             "sha256": sha256_hex,
         }
 
+    def describe_attachments(
+        self,
+        session_id: str,
+        attachment_ids: Sequence[str],
+    ) -> list[dict[str, str]]:
+        """Return safe filename/mime descriptors for uploaded attachment_ids."""
+        out: list[dict[str, str]] = []
+        session_upload_dir = self._config.config_dir / "uploads" / session_id
+        for att_id in attachment_ids:
+            meta = self._attachments_index.get((session_id, att_id))
+            if meta is None and re.match(r"^att_[0-9a-f]{16}$", att_id):
+                loaded = read_json_file(session_upload_dir / f"{att_id}.meta.json", None)
+                if isinstance(loaded, dict) and loaded.get("session_id") == session_id:
+                    meta = loaded
+                    self._attachments_index[(session_id, att_id)] = meta
+            if isinstance(meta, dict):
+                out.append(
+                    {
+                        "attachment_id": str(meta.get("attachment_id") or att_id),
+                        "filename": str(meta.get("filename") or att_id),
+                        "mime_type": str(meta.get("mime_type") or "application/octet-stream"),
+                    }
+                )
+        return out
+
     def resolve_attachments(
         self,
         session_id: str,

@@ -67,22 +67,23 @@ object ConsoleStreamReducer {
         current: ReducedSessionState,
         snapshot: SessionSnapshotDto,
     ): ReducedSessionState {
+        val applyVolatileState = snapshot.cursor >= current.lastCursor
         return current.copy(
             sessionId = snapshot.sessionId,
             title = snapshot.title.ifBlank { current.title },
-            titleSource = snapshot.titleSource,
+            titleSource = if (applyVolatileState) snapshot.titleSource else current.titleSource,
             cwd = snapshot.cwd.ifBlank { current.cwd },
             addDirs = snapshot.addDirs,
-            status = snapshot.status,
-            isLive = snapshot.isLive,
-            sandbox = snapshot.sandbox,
+            status = if (applyVolatileState) snapshot.status else current.status,
+            isLive = if (applyVolatileState) snapshot.isLive else current.isLive,
+            sandbox = if (applyVolatileState) snapshot.sandbox else current.sandbox,
             configOptions = snapshot.configOptions.ifEmpty { current.configOptions },
             availableModels = snapshot.availableModels.ifEmpty { current.availableModels },
             availableCommands = snapshot.availableCommands.ifEmpty { current.availableCommands },
             usage = if (snapshot.usage.size > 0L || snapshot.usage.used > 0L) snapshot.usage else current.usage,
-            pendingPermissions = snapshot.pendingPermissions,
-            pendingQuestions = snapshot.pendingQuestions,
-            queuedFollowups = snapshot.queuedFollowups,
+            pendingPermissions = if (applyVolatileState) snapshot.pendingPermissions else current.pendingPermissions,
+            pendingQuestions = if (applyVolatileState) snapshot.pendingQuestions else current.pendingQuestions,
+            queuedFollowups = if (applyVolatileState) snapshot.queuedFollowups else current.queuedFollowups,
             lastCursor = maxOf(current.lastCursor, snapshot.cursor),
             lastSeq = maxOf(current.lastSeq, if (current.ledger.isEmpty()) 0L else current.lastSeq),
         )
@@ -213,16 +214,26 @@ object ConsoleStreamReducer {
 
             "user_message_chunk" -> {
                 val chunkText = payload["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val attachmentLabels = parseAttachmentLabels(payload)
                 val settled = settleStreamingItems(base.ledger).toMutableList()
                 val last = settled.lastOrNull()
                 if (last is LedgerItem.UserTurn && last.ts == ts && ts.isNotEmpty()) {
-                    settled[settled.lastIndex] = last.copy(text = last.text + chunkText)
+                    val mergedLabels = if (attachmentLabels.isEmpty()) {
+                        last.attachmentLabels
+                    } else {
+                        (last.attachmentLabels + attachmentLabels).distinct()
+                    }
+                    settled[settled.lastIndex] = last.copy(
+                        text = last.text + chunkText,
+                        attachmentLabels = mergedLabels,
+                    )
                 } else {
                     settled += LedgerItem.UserTurn(
                         id = "user_$nextSeq",
                         seq = nextSeq,
                         ts = ts,
                         text = chunkText,
+                        attachmentLabels = attachmentLabels,
                     )
                 }
                 base.copy(ledger = settled)
@@ -566,6 +577,17 @@ object ConsoleStreamReducer {
         }
         return obj.entries.joinToString("\n") { (k, v) -> "$k: ${renderJsonValue(v)}" }
     }
+
+    private fun parseAttachmentLabels(payload: JsonObject): List<String> = runCatching {
+        val raw = payload["attachments"] as? JsonArray ?: return@runCatching emptyList()
+        raw.mapNotNull { entry ->
+            val obj = entry as? JsonObject ?: return@mapNotNull null
+            listOf("filename", "name", "label", "attachment_id")
+                .firstNotNullOfOrNull { key ->
+                    (obj[key] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                }
+        }
+    }.getOrElse { emptyList() }
 
     private fun renderJsonValue(el: JsonElement): String = when (el) {
         is JsonPrimitive -> el.contentOrNull ?: el.toString()

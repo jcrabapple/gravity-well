@@ -40,7 +40,6 @@ import us.snakepit.gravitywell.ui.deck.EcosystemApi
 import us.snakepit.gravitywell.ui.hosts.HostOnboardingController
 import us.snakepit.gravitywell.ui.observatory.ObservatoryApi
 import us.snakepit.gravitywell.ui.observatory.ObservatoryController
-import us.snakepit.gravitywell.ui.sessions.PermissionRuleDto
 import us.snakepit.gravitywell.ui.sessions.SessionBrowserController
 import us.snakepit.gravitywell.ui.sessions.SessionSupplementaryApi
 
@@ -97,9 +96,6 @@ class ShellController(
 
     private val _controlDeckController = MutableStateFlow<ControlDeckController?>(null)
     val controlDeckController: StateFlow<ControlDeckController?> = _controlDeckController.asStateFlow()
-
-    private val _deckRules = MutableStateFlow<List<PermissionRuleDto>>(emptyList())
-    val deckRules: StateFlow<List<PermissionRuleDto>> = _deckRules.asStateFlow()
 
     private var activeHostClient: OkHttpClient? = null
     private var activeGatewayApi: GatewayApi? = null
@@ -276,7 +272,6 @@ class ShellController(
         _controlDeckController.value = deck
 
         browser.refresh()
-        refreshDeckRules()
         if (_state.value.destination == TopLevelDestination.OBSERVATORY) {
             observatory.refreshAll()
         } else if (_state.value.destination == TopLevelDestination.DECK) {
@@ -475,7 +470,6 @@ class ShellController(
                 _observatoryController.value?.refreshAll()
             }
             TopLevelDestination.DECK -> {
-                refreshDeckRules()
                 _controlDeckController.value?.refreshAll()
             }
             else -> Unit
@@ -628,24 +622,6 @@ class ShellController(
             _state.update { it.copy(attachedSessionId = null, showHostSwitcherSheet = false) }
         }
         reloadHostsAndBindActive()
-    }
-
-    // ── Deck Workspace Rules Helper ─────────────────────────────────────────
-
-    fun refreshDeckRules() {
-        val supp = activeSupplementaryApi ?: return
-        scope.launch {
-            runCatching { supp.listPermissionRules(workspace = null) }
-                .onSuccess { _deckRules.value = it.items }
-        }
-    }
-
-    fun revokeDeckRule(ruleId: String) {
-        val supp = activeSupplementaryApi ?: return
-        scope.launch {
-            runCatching { supp.revokePermissionRule(ruleId) }
-                .onSuccess { _deckRules.update { list -> list.filterNot { r -> r.ruleId == ruleId } } }
-        }
     }
 
     fun shutdown() {

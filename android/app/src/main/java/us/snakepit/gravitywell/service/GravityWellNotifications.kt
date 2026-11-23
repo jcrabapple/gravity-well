@@ -36,7 +36,7 @@ object GravityWellNotifications {
     private const val MAX_SUMMARY_CHARS = 120
 
     private val BEARER_PATTERN = Regex("(?i)\\bBearer\\s+[A-Za-z0-9._~+/=-]+")
-    private val KNOWN_PREFIX_PATTERN = Regex("\\b(?:AIza[0-9A-Za-z_-]{12,}|ya29\\.[0-9A-Za-z._-]+|sk-[0-9A-Za-z_-]{12,}|gwt_[0-9A-Za-z_-]{8,})")
+    private val KNOWN_PREFIX_PATTERN = Regex("\\b(?:AIza[0-9A-Za-z_-]{12,}|ya29\\.[0-9A-Za-z._-]+|sk-[0-9A-Za-z_-]{12,}|gwt_[0-9A-Za-z_-]{8,}|1//[0-9A-Za-z._/-]{8,}|gh[pousr]_[0-9A-Za-z_-]{8,})")
     private val ENV_ASSIGN_PATTERN = Regex(
         "(?i)\\b[A-Z0-9_]*(?:TOK" + "EN|KE" + "Y|SEC" + "RET|PASS" + "WORD)\\s*[:=]\\s*\\S+",
     )

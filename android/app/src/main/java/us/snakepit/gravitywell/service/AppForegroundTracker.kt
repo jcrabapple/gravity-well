@@ -1,6 +1,5 @@
 package us.snakepit.gravitywell.service
 
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,7 +12,10 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 object AppForegroundTracker {
     private val startedActivities = AtomicInteger(0)
-    private val shellStreamActive = AtomicBoolean(false)
+    private val _shellStreamActive = MutableStateFlow(false)
+    val shellStreamActive: StateFlow<Boolean> = _shellStreamActive.asStateFlow()
+    val shellStreamActiveFlow: StateFlow<Boolean>
+        get() = shellStreamActive
     private val _isForeground = MutableStateFlow(false)
     val isForeground: StateFlow<Boolean> = _isForeground.asStateFlow()
 
@@ -21,7 +23,7 @@ object AppForegroundTracker {
         get() = _isForeground.value
 
     val isShellStreamActive: Boolean
-        get() = shellStreamActive.get()
+        get() = _shellStreamActive.value
 
     fun onActivityStarted() {
         val count = startedActivities.incrementAndGet()
@@ -34,7 +36,7 @@ object AppForegroundTracker {
     }
 
     fun setShellStreamActive(active: Boolean) {
-        shellStreamActive.set(active)
+        _shellStreamActive.value = active
     }
 
     /** Test-only deterministic override for unit tests. */
