@@ -31,9 +31,9 @@ import us.snakepit.gravitywell.net.SessionSnapshotDto
 import us.snakepit.gravitywell.net.WsServerFrame
 
 enum class SessionScopeFilter(val queryParam: String, val label: String) {
-    ALL("all", "ALL"),
-    LIVE("live", "LIVE"),
-    ARCHIVED("archived", "ARCHIVED"),
+    ALL("all", "All"),
+    LIVE("live", "Active"),
+    ARCHIVED("archived", "Archived"),
 }
 
 @Immutable

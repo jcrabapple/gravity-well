@@ -1,13 +1,13 @@
 <!--
   Authority: Creative Direction & Compose Token Spec
   Deliverable: Gravity Well
-  Status: Locked (Wave 0)
+  Status: Updated (Chat-First Dark Polish)
 -->
 # Gravity Well - Creative Direction & Compose Design Spec
 
-## 1. Creative Brief & Divergence
+## 1. Creative Brief & Chat-First Evolution
 
-**Reading the brief:** Turn a headless Antigravity (`agy`) CLI host into a pocket-sized hardware telemetry rig on Android, where every running session reads like live instrumentation rather than a consumer messaging thread.
+**Reading the brief:** Pair the full power of a self-hosted Antigravity (`agy`) gateway with a calm, spacious, modern dark chat experience on Android — zero removed functionality, clean 3-tab navigation (`Chats`, `Status`, `Settings`), right-aligned user bubbles, editorial full-width AI markdown, compact inline Thinking & Tool pills, and non-blocking docked approval/question cards.
 
 ### Ideation Method
 Applied **Lateral Provocations** (Reversal + Distortion) combined with structural theft from physical avionics and audio hardware. Rejected the baseline distribution of AI mobile apps (chat bubbles, floating action buttons, pastel Material You surfaces, circular donut charts) before drafting.

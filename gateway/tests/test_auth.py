@@ -21,7 +21,7 @@ def test_health_is_unauthenticated_and_leaks_no_paths(client: TestClient, sandbo
     body = resp.json()
     assert body["status"] == "ok"
     assert body["service"] == "gravity-well-gateway"
-    assert body["gateway_version"] == "0.1.0"
+    assert body["gateway_version"] == "1.0.0"
     assert body["agy_version"] == "1.5.15"
     assert body["protocol_version"] == 1
     assert body["auth_required"] is True
@@ -49,7 +49,7 @@ def test_info_requires_bearer_token_and_returns_capabilities(
     ok = client.get("/api/info", headers=auth_headers)
     assert ok.status_code == 200
     data = ok.json()
-    assert data["gateway_version"] == "0.1.0"
+    assert data["gateway_version"] == "1.0.0"
     assert data["agy_version"] == "1.5.15"
     assert data["acp_protocol_version"] == 1
     assert data["default_cwd"] == str(sandbox.workspace.resolve())
@@ -125,7 +125,7 @@ def test_ws_ticket_single_use_ttl_and_bound(
         with tc.websocket_connect(f"/api/ws?ticket={ticket}") as ws:
             hello = ws.receive_json()
             assert hello["frame"] == "hello"
-            assert hello["gateway_version"] == "0.1.0"
+            assert hello["gateway_version"] == "1.0.0"
             ws.send_json({"frame": "ping"})
             pong = ws.receive_json()
             assert pong["frame"] == "pong"

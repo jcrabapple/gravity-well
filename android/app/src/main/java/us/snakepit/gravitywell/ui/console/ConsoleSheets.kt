@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -23,11 +24,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -59,6 +62,7 @@ import us.snakepit.gravitywell.ui.sessions.PermissionRuleDto
 @Composable
 fun SessionConfigSheet(
     session: ReducedSessionState,
+    streamIndicator: ConsoleStreamIndicator = ConsoleStreamIndicator.LIVE,
     onUpdateConfig: (model: String?, thoughtLevel: String?, mode: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -74,173 +78,269 @@ fun SessionConfigSheet(
         if (session.modelId.isNotBlank()) add(session.modelId)
     }.distinct()
 
-    val thoughtChoices = listOf("low", "medium", "high", "xhigh")
-    val modeChoices = listOf(
-        "default" to "Prompt before running mutating tools",
-        "accept-edits" to "Auto-accept workspace file edits; gate commands",
-        "auto" to "Auto-executes tools",
-        "plan" to "Read-only planning & architecture pass",
+    val thoughtChoices = listOf(
+        "low" to "Low",
+        "medium" to "Medium",
+        "high" to "High",
+        "xhigh" to "Max",
     )
+    val modeChoices = listOf(
+        Triple("default", "Ask before tools", "Prompt for approval before running mutating tools"),
+        Triple("accept-edits", "Accept file edits", "Auto-accept workspace edits; ask before commands"),
+        Triple("auto", "Auto-run tools", "Automatically executes tools without asking"),
+        Triple("plan", "Plan only", "Read-only planning and architecture pass"),
+    )
+
+    val fillFraction = if (session.usage.size > 0L) {
+        (session.usage.used.toFloat() / session.usage.size.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    val (streamLabel, streamColor) = when (streamIndicator) {
+        ConsoleStreamIndicator.LIVE -> "Connected" to colors.signalEmerald
+        ConsoleStreamIndicator.REPLAYING -> "Syncing history..." to colors.signalCyan
+        ConsoleStreamIndicator.RECONNECTING -> "Reconnecting..." to colors.signalAmber
+        ConsoleStreamIndicator.RESYNCED -> "Resynced" to colors.signalViolet
+        ConsoleStreamIndicator.OFFLINE -> "Offline cache" to colors.inkMuted
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.md),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.lg),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("LIVE SESSION CONFIG", style = type.headlineSection, color = colors.inkPrimary)
+                Text("Chat settings", style = type.headlineSection, color = colors.inkPrimary)
                 Box(
                     modifier = Modifier
-                        .clip(shapes.sm)
+                        .clip(shapes.pill)
                         .background(if (session.sandbox) colors.signalEmeraldDim else colors.stratumRaised)
-                        .border(
-                            spacing.hairlineWidth,
-                            if (session.sandbox) colors.signalEmerald else colors.hairlineStrong,
-                            shapes.sm,
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text(
-                        text = if (session.sandbox) "SANDBOX: ON" else "SANDBOX: OFF",
+                        text = if (session.sandbox) "Sandbox on" else "Sandbox off",
+                        style = type.labelSmallUi,
+                        color = if (session.sandbox) colors.signalEmerald else colors.inkSecondary,
+                    )
+                }
+            }
+
+            // Context window & connection info card
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shapes.md)
+                    .background(colors.stratumRaised)
+                    .padding(spacing.md),
+                verticalArrangement = Arrangement.spacedBy(spacing.sm),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Context window", style = type.labelUi, color = colors.inkPrimary)
+                    Text(
+                        text = "${formatTokenCompact(session.usage.used)} / ${formatTokenCompact(session.usage.size)}",
                         style = type.monoMicro,
-                        color = if (session.sandbox) colors.signalEmerald else colors.inkMuted,
+                        color = colors.inkSecondary,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(shapes.pill)
+                        .background(colors.stratumWell),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fillFraction)
+                            .fillMaxHeight()
+                            .clip(shapes.pill)
+                            .background(if (fillFraction > 0.85f) colors.signalAmber else colors.signalCyan),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(CircleShape)
+                                .background(streamColor),
+                        )
+                        Text(streamLabel, style = type.labelSmallUi, color = colors.inkSecondary)
+                    }
+                    if (session.lastCursor > 0L) {
+                        Text(
+                            text = "Cursor #${session.lastCursor}",
+                            style = type.monoMicro,
+                            color = colors.inkMuted,
+                        )
+                    }
+                }
+                if (session.cwd.isNotBlank()) {
+                    Text(
+                        text = session.cwd,
+                        style = type.monoMicro,
+                        color = colors.inkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
 
             // 1. Model Family
-            Text("MODEL FAMILY", style = type.labelTelemetry, color = colors.inkSecondary)
-            Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
-                modelChoices.forEach { m ->
-                    val selected = session.modelId == m
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = spacing.touchFloor)
-                            .clip(shapes.sm)
-                            .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
-                            .border(
-                                spacing.hairlineWidth,
-                                if (selected) colors.signalCyan else colors.hairline,
-                                shapes.sm,
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                Text("Model", style = type.labelUi, color = colors.inkSecondary)
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                    modelChoices.forEach { m ->
+                        val selected = session.modelId == m
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = spacing.touchFloor)
+                                .clip(shapes.sm)
+                                .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
+                                .border(
+                                    spacing.hairlineWidth,
+                                    if (selected) colors.signalCyan else colors.hairline,
+                                    shapes.sm,
+                                )
+                                .clickable { onUpdateConfig(m, null, null) }
+                                .padding(horizontal = spacing.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                text = formatModelDisplayName(m),
+                                style = type.bodyCompact,
+                                color = if (selected) colors.signalCyan else colors.inkPrimary,
                             )
-                            .clickable { onUpdateConfig(m, null, null) }
-                            .padding(horizontal = spacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = m,
-                            style = type.monoCode,
-                            color = if (selected) colors.signalCyan else colors.inkPrimary,
-                        )
+                            if (selected) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = "Selected",
+                                    tint = colors.signalCyan,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            // 2. 4-Segment Thought Level Selector (LOW | MEDIUM | HIGH | XHIGH)
-            Text("THOUGHT LEVEL", style = type.labelTelemetry, color = colors.inkSecondary)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(shapes.sm)
-                    .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm),
-            ) {
-                thoughtChoices.forEachIndexed { idx, lvl ->
-                    val selected = session.thoughtLevel.lowercase() == lvl
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .defaultMinSize(minHeight = spacing.touchFloor)
-                            .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
-                            .clickable { onUpdateConfig(null, lvl, null) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = lvl.uppercase(),
-                            style = type.labelTelemetry,
-                            color = if (selected) colors.signalCyan else colors.inkSecondary,
-                        )
-                    }
-                    if (idx < thoughtChoices.lastIndex) {
+            // 2. Thinking Effort
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                Text("Thinking effort", style = type.labelUi, color = colors.inkSecondary)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(shapes.pill)
+                        .background(colors.stratumRaised)
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    thoughtChoices.forEach { (lvl, label) ->
+                        val selected = session.thoughtLevel.lowercase() == lvl
                         Box(
                             modifier = Modifier
-                                .width(spacing.hairlineWidth)
-                                .height(spacing.touchFloor)
-                                .background(colors.hairline),
-                        )
-                    }
-                }
-            }
-
-            // 3. 4-Row Mode Radio Selector
-            Text("EXECUTION MODE", style = type.labelTelemetry, color = colors.inkSecondary)
-            Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
-                modeChoices.forEach { (modeKey, subtitle) ->
-                    val selected = session.modeId == modeKey
-                    val isAutoRisky = modeKey == "auto"
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = spacing.touchFloor)
-                            .clip(shapes.sm)
-                            .background(
-                                when {
-                                    selected && isAutoRisky -> colors.signalAmberDim
-                                    selected -> colors.signalCyanDim
-                                    else -> colors.stratumRaised
-                                },
-                            )
-                            .border(
-                                spacing.hairlineWidth,
-                                when {
-                                    selected && isAutoRisky -> colors.signalAmber
-                                    selected -> colors.signalCyan
-                                    else -> colors.hairline
-                                },
-                                shapes.sm,
-                            )
-                            .clickable { onUpdateConfig(null, null, modeKey) }
-                            .padding(horizontal = spacing.sm, vertical = spacing.xs),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
-                            selected = selected,
-                            onClick = { onUpdateConfig(null, null, modeKey) },
-                            colors = RadioButtonDefaults.colors(
-                                selectedColor = if (isAutoRisky) colors.signalAmber else colors.signalCyan,
-                                unselectedColor = colors.inkMuted,
-                            ),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 42.dp)
+                                .clip(shapes.pill)
+                                .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
+                                .clickable { onUpdateConfig(null, lvl, null) },
+                            contentAlignment = Alignment.Center,
+                        ) {
                             Text(
-                                text = modeKey,
-                                style = type.monoCode,
-                                color = if (isAutoRisky) colors.signalAmber else colors.inkPrimary,
-                            )
-                            Text(
-                                text = subtitle,
-                                style = type.monoMicro,
-                                color = if (isAutoRisky) colors.signalAmber else colors.inkSecondary,
+                                text = label,
+                                style = type.labelUi,
+                                color = if (selected) colors.signalCyan else colors.inkSecondary,
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(spacing.md))
+            // 3. Execution Mode
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                Text("Tool approval mode", style = type.labelUi, color = colors.inkSecondary)
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                    modeChoices.forEach { (modeKey, displayTitle, subtitle) ->
+                        val selected = session.modeId == modeKey
+                        val isAutoRisky = modeKey == "auto"
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = spacing.touchFloor)
+                                .clip(shapes.sm)
+                                .background(
+                                    when {
+                                        selected && isAutoRisky -> colors.signalAmberDim
+                                        selected -> colors.signalCyanDim
+                                        else -> colors.stratumRaised
+                                    },
+                                )
+                                .border(
+                                    spacing.hairlineWidth,
+                                    when {
+                                        selected && isAutoRisky -> colors.signalAmber
+                                        selected -> colors.signalCyan
+                                        else -> colors.hairline
+                                    },
+                                    shapes.sm,
+                                )
+                                .clickable { onUpdateConfig(null, null, modeKey) }
+                                .padding(horizontal = spacing.sm, vertical = spacing.xs),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = selected,
+                                onClick = { onUpdateConfig(null, null, modeKey) },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = if (isAutoRisky) colors.signalAmber else colors.signalCyan,
+                                    unselectedColor = colors.inkMuted,
+                                ),
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = displayTitle,
+                                    style = type.labelUi,
+                                    color = if (isAutoRisky) colors.signalAmber else colors.inkPrimary,
+                                )
+                                Text(
+                                    text = subtitle,
+                                    style = type.bodyCompact,
+                                    color = if (isAutoRisky && selected) colors.signalAmber else colors.inkSecondary,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.lg))
         }
     }
 }
@@ -265,19 +365,24 @@ fun BrainArtifactViewerSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 320.dp, max = 640.dp)
-                .padding(horizontal = spacing.lg, vertical = spacing.sm),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
             if (selectedArtifact == null) {
-                Text("BRAIN/ ARTIFACT BAY", style = type.labelTelemetry, color = colors.signalCyan)
-                Text("Session Artifacts", style = type.headlineSection, color = colors.inkPrimary)
-                HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Artifacts", style = type.headlineSection, color = colors.inkPrimary)
+                    Text(
+                        text = "Files and logs saved by this conversation",
+                        style = type.bodyCompact,
+                        color = colors.inkSecondary,
+                    )
+                }
 
                 if (isLoading) {
                     Box(
@@ -290,7 +395,7 @@ fun BrainArtifactViewerSheet(
                     }
                 } else if (artifacts.isEmpty()) {
                     Text(
-                        text = "No brain/ trajectory artifacts recorded for this session.",
+                        text = "No artifacts saved for this chat yet.",
                         style = type.bodyCompact,
                         color = colors.inkMuted,
                         modifier = Modifier.padding(vertical = spacing.lg),
@@ -309,9 +414,9 @@ fun BrainArtifactViewerSheet(
                             item(key = "dir_$dir") {
                                 Text(
                                     text = dir,
-                                    style = type.labelTelemetry,
+                                    style = type.labelSmallUi,
                                     color = colors.inkMuted,
-                                    modifier = Modifier.padding(top = spacing.xs),
+                                    modifier = Modifier.padding(top = spacing.sm, bottom = 2.dp),
                                 )
                             }
                             items(dirItems, key = { it.path }) { item ->
@@ -321,16 +426,15 @@ fun BrainArtifactViewerSheet(
                                         .defaultMinSize(minHeight = spacing.touchFloor)
                                         .clip(shapes.sm)
                                         .background(colors.stratumRaised)
-                                        .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
                                         .clickable { onSelectArtifact(item) }
-                                        .padding(horizontal = spacing.md, vertical = spacing.xs),
+                                        .padding(horizontal = spacing.md, vertical = spacing.sm),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = item.path.substringAfterLast('/'),
-                                            style = type.monoCode,
+                                            style = type.bodyCompact,
                                             color = colors.inkPrimary,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -357,7 +461,10 @@ fun BrainArtifactViewerSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f),
+                    ) {
                         IconButton(
                             onClick = onBackToList,
                             modifier = Modifier.defaultMinSize(
@@ -366,14 +473,14 @@ fun BrainArtifactViewerSheet(
                             ),
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                                 contentDescription = "Back to artifacts list",
                                 tint = colors.inkPrimary,
                             )
                         }
                         Text(
-                            text = selectedArtifact.item.path,
-                            style = type.monoCode,
+                            text = selectedArtifact.item.path.substringAfterLast('/'),
+                            style = type.titleBar,
                             color = colors.inkPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -383,20 +490,19 @@ fun BrainArtifactViewerSheet(
                     if (selectedArtifact.isSecretRedactedText) {
                         Row(
                             modifier = Modifier
-                                .clip(shapes.sm)
+                                .clip(shapes.pill)
                                 .background(colors.signalVioletDim)
-                                .border(spacing.hairlineWidth, colors.signalViolet, shapes.sm)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Shield,
+                                imageVector = Icons.Rounded.Shield,
                                 contentDescription = null,
                                 tint = colors.signalViolet,
-                                modifier = Modifier.size(12.dp),
+                                modifier = Modifier.size(13.dp),
                             )
-                            Text("SECRET-REDACTED", style = type.monoMicro, color = colors.signalViolet)
+                            Text("Redacted", style = type.labelSmallUi, color = colors.signalViolet)
                         }
                     }
                 }
@@ -417,9 +523,9 @@ fun BrainArtifactViewerSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(380.dp)
-                            .clip(shapes.sm)
+                            .clip(shapes.md)
                             .background(colors.stratumWell)
-                            .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
+                            .border(spacing.hairlineWidth, colors.hairline, shapes.md)
                             .pointerInput(imageBytes) {
                                 detectTransformGestures { _, pan, zoom, _ ->
                                     scale = (scale * zoom).coerceIn(1f, 5f)
@@ -441,7 +547,7 @@ fun BrainArtifactViewerSheet(
                                 ),
                             )
                         } else {
-                            Text("Unable to decode image artifact", style = type.monoMicro, color = colors.signalCrimson)
+                            Text("Unable to decode image artifact", style = type.bodyCompact, color = colors.signalCrimson)
                         }
                     }
                 } else {
@@ -449,9 +555,9 @@ fun BrainArtifactViewerSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .clip(shapes.sm)
+                            .clip(shapes.md)
                             .background(colors.stratumWell)
-                            .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
+                            .border(spacing.hairlineWidth, colors.hairline, shapes.md)
                             .verticalScroll(rememberScrollState())
                             .horizontalScroll(rememberScrollState())
                             .padding(spacing.md),
@@ -488,21 +594,26 @@ fun WorkspaceRulesSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
-            Text("WORKSPACE PERMISSION RULES", style = type.labelTelemetry, color = colors.signalAmber)
-            Text("Granted Allow-Rules", style = type.headlineSection, color = colors.inkPrimary)
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Project permission rules", style = type.headlineSection, color = colors.inkPrimary)
+                Text(
+                    text = "Tools automatically approved for this workspace",
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
+            }
 
             if (rules.isEmpty()) {
                 Text(
-                    text = "Zero persistent workspace allow-rules active for this cwd.",
+                    text = "No auto-approval rules saved for this project.",
                     style = type.bodyCompact,
                     color = colors.inkMuted,
                     modifier = Modifier.padding(vertical = spacing.md),
@@ -514,8 +625,7 @@ fun WorkspaceRulesSheet(
                             .fillMaxWidth()
                             .clip(shapes.sm)
                             .background(colors.stratumRaised)
-                            .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-                            .padding(spacing.sm),
+                            .padding(spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
@@ -542,19 +652,29 @@ fun WorkspaceRulesSheet(
                         Spacer(modifier = Modifier.width(spacing.sm))
                         OutlinedButton(
                             onClick = { onRevokeRule(rule.ruleId) },
-                            shape = shapes.sm,
+                            shape = shapes.pill,
                             border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
                             modifier = Modifier.defaultMinSize(
                                 minWidth = spacing.touchFloor,
                                 minHeight = spacing.touchFloor,
                             ),
                         ) {
-                            Text("Revoke", style = type.labelTelemetry, color = colors.signalCrimson)
+                            Text("Revoke", style = type.labelUi, color = colors.signalCrimson)
                         }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(spacing.md))
+            Spacer(modifier = Modifier.height(spacing.lg))
         }
     }
+}
+
+internal fun formatModelDisplayName(rawModelId: String): String {
+    val clean = rawModelId.trim()
+    if (clean.isEmpty()) return "Default model"
+    return clean.split('-', '_')
+        .filter { it.isNotBlank() }
+        .joinToString(" ") { part ->
+            part.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
+        }
 }

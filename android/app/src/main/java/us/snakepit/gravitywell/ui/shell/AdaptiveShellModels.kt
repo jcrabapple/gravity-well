@@ -6,10 +6,18 @@ import us.snakepit.gravitywell.net.CapabilitiesDto
 import us.snakepit.gravitywell.net.WsConnectionState
 
 enum class TopLevelDestination(val label: String) {
-    SESSIONS("SESSIONS"),
-    CONSOLE("CONSOLE"),
-    OBSERVATORY("OBSERVATORY"),
-    DECK("DECK"),
+    SESSIONS("Chats"),
+    CONSOLE("Chat"),
+    OBSERVATORY("Status"),
+    DECK("Settings");
+
+    companion object {
+        val primaryTabs: List<TopLevelDestination> = listOf(
+            SESSIONS,
+            OBSERVATORY,
+            DECK,
+        )
+    }
 }
 
 @Immutable
@@ -25,10 +33,10 @@ object AdaptiveShellBreakpoints {
     const val EXPANDED_WIDTH_DP: Int = 600
 
     /**
-     * Resolves adaptive Vernier Rig layout per DIRECTION-gravity-well.md Section 3:
-     * - < 600dp: bottom NavigationBar (hidden when actively inside an attached session Console
-     *   so the thumb-zone composer + docked approval bar sit flush at the bottom edge).
-     * - >= 600dp: left NavigationRail + 360dp Sessions / remaining Console two-pane split.
+     * Resolves adaptive layout:
+     * - < 600dp: 3-tab bottom bar (Chats / Status / Settings), hidden when inside an attached
+     *   Chat so the rounded composer and docked approval/question cards sit cleanly at the bottom.
+     * - >= 600dp: left NavigationRail + 360dp Chats sidebar / Chat detail two-pane split.
      */
     fun resolveLayout(
         widthDp: Int,

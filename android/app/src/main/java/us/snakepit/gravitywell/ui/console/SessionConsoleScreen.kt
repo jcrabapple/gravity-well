@@ -5,6 +5,9 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -12,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -24,28 +28,34 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.io.ByteArrayOutputStream
@@ -55,6 +65,7 @@ import kotlinx.coroutines.withContext
 import us.snakepit.gravitywell.theme.GravityWellTheme
 import us.snakepit.gravitywell.ui.sessions.SessionBrowserItem
 import us.snakepit.gravitywell.ui.sessions.WorkspaceFileItemDto
+import us.snakepit.gravitywell.ui.sessions.basenameOfPath
 
 @Composable
 fun SessionConsoleScreen(
@@ -137,8 +148,30 @@ fun SessionConsoleScreen(
         )
     }
 
-    LaunchedEffect(state.session.ledger.size) {
-        if (state.session.ledger.isNotEmpty()) {
+    val isNearBottom by remember {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val total = layoutInfo.totalItemsCount
+            if (total == 0) {
+                true
+            } else {
+                val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                lastVisible >= total - 2
+            }
+        }
+    }
+
+    val tailSignature = remember(state.session.ledger) {
+        when (val last = state.session.ledger.lastOrNull()) {
+            is LedgerItem.AgentProse -> "${last.id}:${last.text.length}"
+            is LedgerItem.ThoughtBlock -> "${last.id}:${last.text.length}"
+            is LedgerItem.ToolCallBlock -> "${last.id}:${last.status}:${last.rawOutputSummary.length}"
+            else -> last?.id.orEmpty()
+        }
+    }
+
+    LaunchedEffect(state.session.ledger.size, tailSignature) {
+        if (state.session.ledger.isNotEmpty() && isNearBottom) {
             listState.animateScrollToItem(state.session.ledger.lastIndex)
         }
     }
@@ -148,15 +181,19 @@ fun SessionConsoleScreen(
             .fillMaxSize()
             .background(colors.chassisVoid),
     ) {
-        // 1. 52dp Top Bar
+        // 1. Clean Single-Row Chat Header with Tappable Model Pill
         ConsoleTopBar(
             title = state.session.title,
-            titleSource = state.session.titleSource,
-            status = state.session.status,
+            modelId = state.session.modelId,
+            thoughtLevel = state.session.thoughtLevel,
+            modeId = state.session.modeId,
+            usage = state.session.usage,
+            streamIndicator = state.streamIndicator,
             isTurnActive = state.session.isTurnActive,
             showBackButton = showBackButton,
             onBack = onBack,
             onRenameTitle = onRenameTitleClick,
+            onOpenConfigSheet = onOpenConfigSheet,
             onCancelTurn = onCancelTurn,
             onOpenArtifacts = onOpenArtifacts,
             onOpenWorkspaceRules = onOpenWorkspaceRules,
@@ -164,19 +201,7 @@ fun SessionConsoleScreen(
         )
         HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
 
-        // 2. 28dp Telemetry Sub-Header
-        TelemetrySubHeader(
-            modelId = state.session.modelId,
-            thoughtLevel = state.session.thoughtLevel,
-            modeId = state.session.modeId,
-            usage = state.session.usage,
-            streamIndicator = state.streamIndicator,
-            lastCursor = state.session.lastCursor,
-            onOpenConfigSheet = onOpenConfigSheet,
-        )
-        HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
-
-        // 3. Pinned 36dp Subagent / Swarm Strip (when child worker calls exist)
+        // 2. Active Subagent / Swarm Strip (shown only when child workers are present)
         if (state.session.swarmWorkers.isNotEmpty()) {
             SwarmProgressStrip(
                 workers = state.session.swarmWorkers,
@@ -196,14 +221,17 @@ fun SessionConsoleScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = spacing.md, vertical = spacing.xs)
+                    .clip(shapes.sm)
                     .background(colors.signalCrimsonDim)
-                    .padding(horizontal = spacing.md, vertical = 2.dp),
+                    .border(spacing.hairlineWidth, colors.signalCrimson, shapes.sm)
+                    .padding(start = spacing.md, end = spacing.xs, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
                     text = state.errorBanner,
-                    style = type.monoMicro,
+                    style = type.bodyCompact,
                     color = colors.signalCrimson,
                     modifier = Modifier.weight(1f),
                 )
@@ -212,76 +240,146 @@ fun SessionConsoleScreen(
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Dismiss console error",
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Dismiss error",
                         tint = colors.signalCrimson,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
         }
 
-        // 4. Turn Stream Ledger (0dp horizontal margins, full-bleed strata)
-        LazyColumn(
-            state = listState,
+        // 3. Airy Chat Message Stream + Floating Jump-to-Latest Button
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
         ) {
             if (state.session.ledger.isEmpty()) {
-                item(key = "__empty_ledger__") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(spacing.xxl),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(spacing.xl),
-                        verticalArrangement = Arrangement.spacedBy(spacing.xs),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(spacing.md),
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(colors.signalCyanDim),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoAwesome,
+                                contentDescription = null,
+                                tint = colors.signalCyan,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
                         Text(
-                            text = "OSCILLOSCOPE READY · ${state.session.cwd.ifBlank { "WORKSPACE" }}",
-                            style = type.labelTelemetry,
-                            color = colors.inkMuted,
+                            text = "How can Antigravity help?",
+                            style = type.headlineSection,
+                            color = colors.inkPrimary,
+                            textAlign = TextAlign.Center,
                         )
+                        if (state.session.cwd.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(shapes.pill)
+                                    .background(colors.stratumBase)
+                                    .border(spacing.hairlineWidth, colors.hairline, shapes.pill)
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    text = basenameOfPath(state.session.cwd),
+                                    style = type.monoMicro,
+                                    color = colors.inkSecondary,
+                                )
+                            }
+                        }
                         Text(
-                            text = "Submit a prompt, type @ to attach workspace files, or / for ACP commands.",
+                            text = "Type a message, use @ to mention project files, or / for slash commands.",
                             style = type.bodyCompact,
-                            color = colors.inkSecondary,
+                            color = colors.inkMuted,
+                            textAlign = TextAlign.Center,
                         )
                     }
                 }
             } else {
-                items(
-                    items = state.session.ledger,
-                    key = { it.id },
-                ) { entry ->
-                    when (entry) {
-                        is LedgerItem.UserTurn -> UserTurnStratum(entry)
-                        is LedgerItem.AgentProse -> AgentProseStratum(entry)
-                        is LedgerItem.ThoughtBlock -> {
-                            val isExpanded = entry.id in state.expandedThoughtIds
-                            ThoughtStratum(
-                                item = entry,
-                                expanded = isExpanded,
-                                onToggle = { onToggleThought(entry) },
-                            )
+                LazyColumn(
+                    state = listState,
+                    contentPadding = PaddingValues(top = spacing.lg, bottom = spacing.xl),
+                    verticalArrangement = Arrangement.spacedBy(spacing.md),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(
+                        items = state.session.ledger,
+                        key = { it.id },
+                    ) { entry ->
+                        when (entry) {
+                            is LedgerItem.UserTurn -> UserTurnStratum(entry)
+                            is LedgerItem.AgentProse -> AgentProseStratum(entry)
+                            is LedgerItem.ThoughtBlock -> {
+                                val isExpanded = entry.id in state.expandedThoughtIds
+                                ThoughtStratum(
+                                    item = entry,
+                                    expanded = isExpanded,
+                                    onToggle = { onToggleThought(entry) },
+                                )
+                            }
+                            is LedgerItem.ToolCallBlock -> {
+                                ToolGutterStratum(
+                                    item = entry,
+                                    expanded = entry.id in state.expandedToolIds,
+                                    diffMode = state.toolDiffModes[entry.id] ?: DiffDisplayMode.UNIFIED,
+                                    onToggleExpanded = { onToggleToolGutter(entry.id) },
+                                    onSelectDiffMode = { mode -> onSetToolDiffMode(entry.id, mode) },
+                                )
+                            }
+                            is LedgerItem.SystemNotice -> SystemNoticeStratum(entry)
                         }
-                        is LedgerItem.ToolCallBlock -> {
-                            ToolGutterStratum(
-                                item = entry,
-                                expanded = entry.id in state.expandedToolIds,
-                                diffMode = state.toolDiffModes[entry.id] ?: DiffDisplayMode.UNIFIED,
-                                onToggleExpanded = { onToggleToolGutter(entry.id) },
-                                onSelectDiffMode = { mode -> onSetToolDiffMode(entry.id, mode) },
-                            )
-                        }
-                        is LedgerItem.SystemNotice -> SystemNoticeStratum(entry)
                     }
-                    HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+                }
+            }
+
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !isNearBottom && state.session.ledger.isNotEmpty(),
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(spacing.lg),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(colors.stratumRaised)
+                        .border(spacing.hairlineWidth, colors.hairlineStrong, CircleShape)
+                        .clickable {
+                            uiScope.launch {
+                                if (state.session.ledger.isNotEmpty()) {
+                                    listState.animateScrollToItem(state.session.ledger.lastIndex)
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.ArrowDownward,
+                        contentDescription = "Jump to latest message",
+                        tint = colors.inkPrimary,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
             }
         }
 
-        // 5. Docked Permission & Question Interlocks (never center-blocking popups)
+        // 4. Docked Permission & Question Cards (non-blocking so diffs stay readable above)
         state.session.pendingPermissions.firstOrNull()?.let { perm ->
             DockedPermissionGateBar(
                 permission = perm,
@@ -304,7 +402,7 @@ fun SessionConsoleScreen(
             )
         }
 
-        // 6. Queued Follow-Up Tray
+        // 5. Queued Follow-Up Tray
         if (state.session.queuedFollowups.isNotEmpty() || state.session.queuePaused) {
             QueuedFollowupTray(
                 items = state.session.queuedFollowups,
@@ -321,7 +419,7 @@ fun SessionConsoleScreen(
             )
         }
 
-        // 7. Thumb-Zone Composer Dock
+        // 6. Rounded Chat Composer Dock
         ThumbZoneComposerDock(
             draftText = state.draftText,
             draftCursorIndex = state.draftCursorIndex,
@@ -348,9 +446,9 @@ fun SessionConsoleScreen(
             onDismissRequest = onDismissRename,
             containerColor = colors.stratumBase,
             tonalElevation = spacing.elevationZero,
-            shape = shapes.md,
+            shape = shapes.lg,
             title = {
-                Text("RENAME SESSION", style = type.labelTelemetry, color = colors.signalViolet)
+                Text("Rename chat", style = type.titleBar, color = colors.inkPrimary)
             },
             text = {
                 OutlinedTextField(
@@ -362,7 +460,7 @@ fun SessionConsoleScreen(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.stratumWell,
                         unfocusedContainerColor = colors.stratumWell,
-                        focusedBorderColor = colors.signalViolet,
+                        focusedBorderColor = colors.signalCyan,
                         unfocusedBorderColor = colors.hairline,
                         focusedTextColor = colors.inkPrimary,
                         unfocusedTextColor = colors.inkPrimary,
@@ -375,7 +473,7 @@ fun SessionConsoleScreen(
                     onClick = onSubmitRename,
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
-                    Text("SAVE", style = type.labelTelemetry, color = colors.signalCyan)
+                    Text("Save", style = type.labelUi, color = colors.signalCyan)
                 }
             },
             dismissButton = {
@@ -383,7 +481,7 @@ fun SessionConsoleScreen(
                     onClick = onDismissRename,
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
-                    Text("CANCEL", style = type.labelTelemetry, color = colors.inkSecondary)
+                    Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
                 }
             },
         )
@@ -392,6 +490,7 @@ fun SessionConsoleScreen(
     if (state.showConfigSheet) {
         SessionConfigSheet(
             session = state.session,
+            streamIndicator = state.streamIndicator,
             onUpdateConfig = onUpdateLiveConfig,
             onDismiss = onDismissConfigSheet,
         )
@@ -418,8 +517,7 @@ fun SessionConsoleScreen(
 }
 
 /**
- * Quick-attach empty state shown in the Console lane when no session_id is attached yet
- * (DIRECTION-gravity-well.md Section 3).
+ * Friendly empty state shown in the Chat detail pane on tablets when no chat is selected yet.
  */
 @Composable
 fun ConsoleQuickAttachBay(
@@ -433,89 +531,115 @@ fun ConsoleQuickAttachBay(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(colors.chassisVoid)
-            .padding(spacing.lg),
-        verticalArrangement = Arrangement.spacedBy(spacing.md),
+            .padding(spacing.xxl),
+        contentAlignment = Alignment.Center,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
-            Icon(
-                imageVector = Icons.Default.Terminal,
-                contentDescription = null,
-                tint = colors.signalCyan,
-            )
-            Text("CONSOLE BAY · QUICK ATTACH", style = type.labelTelemetry, color = colors.signalCyan)
-        }
-
-        Text(
-            text = if (liveSessions.isEmpty()) {
-                "No live ACP process attached"
-            } else {
-                "Select a live ACP session to attach"
-            },
-            style = type.headlineSection,
-            color = colors.inkPrimary,
-        )
-
-        OutlinedButton(
-            onClick = onCreateNewSession,
-            shape = shapes.sm,
-            border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = colors.signalCyanDim,
-                contentColor = colors.signalCyan,
-            ),
-            modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(spacing.xs))
-            Text("New Session", style = type.labelTelemetry)
-        }
-
-        if (liveSessions.isNotEmpty()) {
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(spacing.xs),
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(colors.signalCyanDim),
+                contentAlignment = Alignment.Center,
             ) {
-                items(liveSessions, key = { it.sessionId }) { item ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = spacing.touchFloor)
-                            .clip(shapes.sm)
-                            .background(colors.stratumBase)
-                            .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-                            .clickable { onAttachSession(item.sessionId) }
-                            .padding(horizontal = spacing.md, vertical = spacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = item.title,
-                                style = type.titleBar,
-                                color = colors.inkPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = item.cwd,
-                                style = type.monoMicro,
-                                color = colors.inkSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                Icon(
+                    imageVector = Icons.Rounded.Forum,
+                    contentDescription = null,
+                    tint = colors.signalCyan,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+
+            Text(
+                text = if (liveSessions.isEmpty()) {
+                    "Start a new chat"
+                } else {
+                    "Select a chat to continue"
+                },
+                style = type.headlineSection,
+                color = colors.inkPrimary,
+                textAlign = TextAlign.Center,
+            )
+
+            Text(
+                text = "Pick a conversation from the list or start a fresh thread with Antigravity.",
+                style = type.bodyCompact,
+                color = colors.inkSecondary,
+                textAlign = TextAlign.Center,
+            )
+
+            Button(
+                onClick = onCreateNewSession,
+                shape = shapes.pill,
+                elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.signalCyan,
+                    contentColor = colors.inkInverse,
+                ),
+                contentPadding = PaddingValues(horizontal = spacing.xl, vertical = spacing.md),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+            ) {
+                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(spacing.xs))
+                Text("New chat", style = type.labelUi)
+            }
+
+            if (liveSessions.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(spacing.sm))
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(liveSessions.take(5), key = { it.sessionId }) { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = spacing.touchFloor)
+                                .clip(shapes.md)
+                                .background(colors.stratumBase)
+                                .border(spacing.hairlineWidth, colors.hairline, shapes.md)
+                                .clickable { onAttachSession(item.sessionId) }
+                                .padding(horizontal = spacing.lg, vertical = spacing.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.title,
+                                    style = type.titleBar,
+                                    color = colors.inkPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = basenameOfPath(item.cwd),
+                                    style = type.bodyCompact,
+                                    color = colors.inkSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(shapes.pill)
+                                    .background(if (item.hasPendingGate) colors.signalAmberDim else colors.signalEmeraldDim)
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    text = if (item.hasPendingGate) "Needs approval" else "Active",
+                                    style = type.labelSmallUi,
+                                    color = if (item.hasPendingGate) colors.signalAmber else colors.signalEmerald,
+                                )
+                            }
                         }
-                        Text(
-                            text = item.status.uppercase(),
-                            style = type.labelTelemetry,
-                            color = if (item.hasPendingGate) colors.signalAmber else colors.signalEmerald,
-                        )
                     }
                 }
             }

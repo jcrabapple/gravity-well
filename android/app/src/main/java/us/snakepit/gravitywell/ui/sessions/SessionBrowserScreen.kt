@@ -15,12 +15,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,15 +29,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,9 +68,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.time.Duration
+import java.time.Instant
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import us.snakepit.gravitywell.theme.GravityWellTheme
+import us.snakepit.gravitywell.ui.console.formatModelDisplayName
 
 @Composable
 fun SessionBrowserScreen(
@@ -103,228 +113,263 @@ fun SessionBrowserScreen(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(colors.chassisVoid),
     ) {
-        // ── Scope Strip + New Session + Refresh ──────────────────────────────
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(colors.stratumBase)
-                .padding(horizontal = spacing.md, vertical = spacing.sm),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ── Search + Filter Pills ────────────────────────────────────────
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.chassisVoid)
+                    .padding(horizontal = spacing.lg, vertical = spacing.xs),
+                verticalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                ) {
+                    OutlinedTextField(
+                        value = state.searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        singleLine = true,
+                        textStyle = type.bodyProse,
+                        placeholder = {
+                            Text(
+                                text = "Search chats...",
+                                style = type.bodyProse,
+                                color = colors.inkMuted,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Search,
+                                contentDescription = null,
+                                tint = colors.inkMuted,
+                            )
+                        },
+                        trailingIcon = {
+                            if (state.searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { onSearchQueryChange("") },
+                                    modifier = Modifier.defaultMinSize(
+                                        minWidth = spacing.touchFloor,
+                                        minHeight = spacing.touchFloor,
+                                    ),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Close,
+                                        contentDescription = "Clear search query",
+                                        tint = colors.inkSecondary,
+                                    )
+                                }
+                            }
+                        },
+                        shape = shapes.pill,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = colors.stratumBase,
+                            unfocusedContainerColor = colors.stratumBase,
+                            focusedBorderColor = colors.signalCyan,
+                            unfocusedBorderColor = colors.hairline,
+                            focusedTextColor = colors.inkPrimary,
+                            unfocusedTextColor = colors.inkPrimary,
+                            cursorColor = colors.signalCyan,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+
+                    IconButton(
+                        onClick = onRefresh,
+                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Refresh chats",
+                            tint = colors.inkSecondary,
+                        )
+                    }
+                }
+
+                // Scope pills (All / Active / Archived)
                 ScopeSegmentedStrip(
                     selected = state.scope,
                     onSelect = onScopeChange,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                IconButton(
-                    onClick = onRefresh,
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh sessions",
-                        tint = colors.inkSecondary,
-                    )
-                }
-                OutlinedButton(
-                    onClick = onOpenNewSession,
-                    shape = shapes.sm,
-                    border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-                    contentPadding = PaddingValues(horizontal = spacing.md, vertical = 0.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = colors.signalCyanDim,
-                        contentColor = colors.signalCyan,
-                    ),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(spacing.xs))
-                    Text("NEW", style = type.labelTelemetry)
-                }
-            }
 
-            // ── FTS5 Search Input (stratumWell) ──────────────────────────────
-            OutlinedTextField(
-                value = state.searchQuery,
-                onValueChange = onSearchQueryChange,
-                singleLine = true,
-                textStyle = type.monoCode,
-                placeholder = {
-                    Text(
-                        text = "Search live & FTS5 archived conversations...",
-                        style = type.bodyCompact,
-                        color = colors.inkMuted,
-                    )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = colors.inkMuted,
-                    )
-                },
-                trailingIcon = {
-                    if (state.searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { onSearchQueryChange("") },
-                            modifier = Modifier.defaultMinSize(
-                                minWidth = spacing.touchFloor,
-                                minHeight = spacing.touchFloor,
-                            ),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear search query",
-                                tint = colors.inkSecondary,
+                // Workspace Filter Chips (shown when multiple workspaces exist or one is selected)
+                if (state.availableWorkspaces.size > 1 || state.selectedWorkspaceCwd != null) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                    ) {
+                        item(key = "__all_ws__") {
+                            WorkspaceFilterChip(
+                                label = "All projects",
+                                selected = state.selectedWorkspaceCwd == null,
+                                onClick = { onSelectWorkspace(null) },
+                            )
+                        }
+                        items(state.availableWorkspaces, key = { it }) { ws ->
+                            WorkspaceFilterChip(
+                                label = basenameOfPath(ws),
+                                selected = state.selectedWorkspaceCwd == ws,
+                                onClick = { onSelectWorkspace(ws) },
                             )
                         }
                     }
-                },
-                shape = shapes.sm,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = colors.stratumWell,
-                    unfocusedContainerColor = colors.stratumWell,
-                    focusedBorderColor = colors.signalCyan,
-                    unfocusedBorderColor = colors.hairline,
-                    focusedTextColor = colors.inkPrimary,
-                    unfocusedTextColor = colors.inkPrimary,
-                    cursorColor = colors.signalCyan,
-                ),
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            // ── Workspace Filter Chips ───────────────────────────────────────
-            if (state.availableWorkspaces.isNotEmpty()) {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                ) {
-                    item(key = "__all_ws__") {
-                        WorkspaceFilterChip(
-                            label = "All Workspaces",
-                            selected = state.selectedWorkspaceCwd == null,
-                            onClick = { onSelectWorkspace(null) },
-                        )
-                    }
-                    items(state.availableWorkspaces, key = { it }) { ws ->
-                        WorkspaceFilterChip(
-                            label = basenameOfPath(ws),
-                            selected = state.selectedWorkspaceCwd == ws,
-                            onClick = { onSelectWorkspace(ws) },
-                        )
-                    }
                 }
             }
-        }
 
-        HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+            Spacer(modifier = Modifier.height(spacing.xs))
 
-        // ── External Session Radar Strip (FLOCK-verified only, D10) ──────────
-        if (state.externalSessions.isNotEmpty()) {
-            ExternalSessionRadarStrip(
-                externalSessions = state.externalSessions,
-                expanded = state.radarExpanded,
-                onToggle = onToggleRadar,
-                onResumeExternal = onResumeExternalSession,
-            )
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
-        }
-
-        // ── Inline Error / Capability Notice Banner ──────────────────────────
-        val bannerText = state.errorBanner ?: state.infoNotice
-        if (bannerText != null) {
-            val isError = state.errorBanner != null
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(if (isError) colors.signalCrimsonDim else colors.signalAmberDim)
-                    .padding(horizontal = spacing.md, vertical = spacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = bannerText,
-                    style = type.monoMicro,
-                    color = if (isError) colors.signalCrimson else colors.signalAmber,
-                    modifier = Modifier.weight(1f),
+            // ── Active External Host Sessions Banner (FLOCK-verified, D10) ───
+            if (state.externalSessions.isNotEmpty()) {
+                ExternalSessionRadarStrip(
+                    externalSessions = state.externalSessions,
+                    expanded = state.radarExpanded,
+                    onToggle = onToggleRadar,
+                    onResumeExternal = onResumeExternalSession,
+                    modifier = Modifier.padding(horizontal = spacing.lg, vertical = spacing.xs),
                 )
-                IconButton(
-                    onClick = onDismissNotices,
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+            }
+
+            // ── Inline Error / Notice Banner ─────────────────────────────────
+            val bannerText = state.errorBanner ?: state.infoNotice
+            if (bannerText != null) {
+                val isError = state.errorBanner != null
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = spacing.lg, vertical = spacing.xs)
+                        .clip(shapes.sm)
+                        .background(if (isError) colors.signalCrimsonDim else colors.signalAmberDim)
+                        .border(
+                            spacing.hairlineWidth,
+                            if (isError) colors.signalCrimson else colors.signalAmber,
+                            shapes.sm,
+                        )
+                        .padding(start = spacing.md, end = spacing.xs, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Dismiss notice",
-                        tint = if (isError) colors.signalCrimson else colors.signalAmber,
-                        modifier = Modifier.size(16.dp),
+                    Text(
+                        text = bannerText,
+                        style = type.bodyCompact,
+                        color = if (isError) colors.signalCrimson else colors.signalAmber,
+                        modifier = Modifier.weight(1f),
                     )
+                    IconButton(
+                        onClick = onDismissNotices,
+                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Dismiss notice",
+                            tint = if (isError) colors.signalCrimson else colors.signalAmber,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+
+            // ── Chat List ────────────────────────────────────────────────────
+            if (state.sessions.isEmpty() && !state.isLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(spacing.xxl),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(colors.stratumBase),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Forum,
+                                contentDescription = null,
+                                tint = colors.inkMuted,
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        Text(
+                            text = "No chats yet",
+                            style = type.titleBar,
+                            color = colors.inkPrimary,
+                        )
+                        Text(
+                            text = "Start a new conversation or broaden your search filter.",
+                            style = type.bodyCompact,
+                            color = colors.inkSecondary,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(
+                        start = spacing.md,
+                        end = spacing.md,
+                        top = spacing.xs,
+                        bottom = 92.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(
+                        items = state.sessions,
+                        key = { it.sessionId },
+                    ) { item ->
+                        TelemetrySessionRow(
+                            item = item,
+                            isSelected = item.sessionId == selectedSessionId,
+                            forkSupported = state.capabilities.fork,
+                            agyVersion = state.agyVersion,
+                            onClick = { onSessionClick(item) },
+                            onRename = { onRenameRequest(item) },
+                            onClose = { onCloseSession(item.sessionId) },
+                            onFork = { onForkSession(item) },
+                        )
+                    }
+                }
+            }
         }
 
-        // ── Telemetry Session Ledger List ────────────────────────────────────
-        if (state.sessions.isEmpty() && !state.isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(spacing.xl),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(spacing.sm),
-                ) {
-                    Text(
-                        text = "NO SESSIONS IN SCOPE",
-                        style = type.labelTelemetry,
-                        color = colors.inkMuted,
-                    )
-                    Text(
-                        text = "Spawn an Antigravity ACP supervisor in a host workspace or broaden the filter.",
-                        style = type.bodyCompact,
-                        color = colors.inkSecondary,
-                    )
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(
-                    items = state.sessions,
-                    key = { it.sessionId },
-                ) { item ->
-                    TelemetrySessionRow(
-                        item = item,
-                        isSelected = item.sessionId == selectedSessionId,
-                        forkSupported = state.capabilities.fork,
-                        agyVersion = state.agyVersion,
-                        onClick = { onSessionClick(item) },
-                        onRename = { onRenameRequest(item) },
-                        onClose = { onCloseSession(item.sessionId) },
-                        onFork = { onForkSession(item) },
-                    )
-                    HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
-                }
-            }
+        // ── Floating New Chat Pill Button ────────────────────────────────────
+        Button(
+            onClick = onOpenNewSession,
+            shape = shapes.pill,
+            elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = colors.signalCyan,
+                contentColor = colors.inkInverse,
+            ),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(spacing.lg)
+                .defaultMinSize(minWidth = spacing.touchFloor, minHeight = 52.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Add,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("New chat", style = type.labelUi)
         }
     }
 
-    // ── Resume Archived Session Sheet ────────────────────────────────────────
+    // ── Resume Archived Chat Sheet ───────────────────────────────────────────
     val resumeTarget = state.resumePromptTarget
     if (resumeTarget != null) {
         ResumeSessionSheet(
@@ -340,16 +385,16 @@ fun SessionBrowserScreen(
         )
     }
 
-    // ── Rename Session Modal Card ────────────────────────────────────────────
+    // ── Rename Chat Dialog ───────────────────────────────────────────────────
     val renameTarget = state.renameTarget
     if (renameTarget != null) {
         AlertDialog(
             onDismissRequest = onDismissRename,
             containerColor = colors.stratumBase,
             tonalElevation = spacing.elevationZero,
-            shape = shapes.md,
+            shape = shapes.lg,
             title = {
-                Text("RENAME SESSION OVERRIDE", style = type.labelTelemetry, color = colors.signalViolet)
+                Text("Rename chat", style = type.titleBar, color = colors.inkPrimary)
             },
             text = {
                 OutlinedTextField(
@@ -361,7 +406,7 @@ fun SessionBrowserScreen(
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = colors.stratumWell,
                         unfocusedContainerColor = colors.stratumWell,
-                        focusedBorderColor = colors.signalViolet,
+                        focusedBorderColor = colors.signalCyan,
                         unfocusedBorderColor = colors.hairline,
                         focusedTextColor = colors.inkPrimary,
                         unfocusedTextColor = colors.inkPrimary,
@@ -374,7 +419,7 @@ fun SessionBrowserScreen(
                     onClick = onSubmitRename,
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
-                    Text("SAVE", style = type.labelTelemetry, color = colors.signalCyan)
+                    Text("Save", style = type.labelUi, color = colors.signalCyan)
                 }
             },
             dismissButton = {
@@ -382,13 +427,13 @@ fun SessionBrowserScreen(
                     onClick = onDismissRename,
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
-                    Text("CANCEL", style = type.labelTelemetry, color = colors.inkSecondary)
+                    Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
                 }
             },
         )
     }
 
-    // ── New Session Sheet ────────────────────────────────────────────────────
+    // ── New Chat Sheet ───────────────────────────────────────────────────────
     if (state.showNewSessionSheet) {
         NewSessionBottomSheet(
             form = state.newSessionForm,
@@ -416,33 +461,27 @@ private fun ScopeSegmentedStrip(
 
     Row(
         modifier = modifier
-            .clip(shapes.sm)
-            .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-            .background(colors.stratumRaised),
+            .clip(shapes.pill)
+            .background(colors.stratumBase)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        SessionScopeFilter.entries.forEachIndexed { index, option ->
+        SessionScopeFilter.entries.forEach { option ->
             val isSelected = option == selected
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
-                    .background(if (isSelected) colors.signalCyanDim else colors.stratumRaised)
+                    .defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp)
+                    .clip(shapes.pill)
+                    .background(if (isSelected) colors.signalCyanDim else colors.stratumBase)
                     .clickable(role = Role.Tab) { onSelect(option) }
                     .padding(horizontal = spacing.sm),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = option.label,
-                    style = type.labelTelemetry,
+                    style = type.labelUi,
                     color = if (isSelected) colors.signalCyan else colors.inkSecondary,
-                )
-            }
-            if (index < SessionScopeFilter.entries.lastIndex) {
-                Box(
-                    modifier = Modifier
-                        .width(spacing.hairlineWidth)
-                        .height(spacing.touchFloor)
-                        .background(colors.hairline),
                 )
             }
         }
@@ -462,21 +501,21 @@ private fun WorkspaceFilterChip(
 
     Box(
         modifier = Modifier
-            .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
-            .clip(shapes.sm)
-            .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
+            .defaultMinSize(minWidth = spacing.touchFloor, minHeight = 36.dp)
+            .clip(shapes.pill)
+            .background(if (selected) colors.signalCyanDim else colors.stratumBase)
             .border(
                 width = spacing.hairlineWidth,
                 color = if (selected) colors.signalCyan else colors.hairline,
-                shape = shapes.sm,
+                shape = shapes.pill,
             )
             .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = spacing.md),
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
-            style = type.monoMicro,
+            style = type.labelSmallUi,
             color = if (selected) colors.signalCyan else colors.inkSecondary,
         )
     }
@@ -488,6 +527,7 @@ private fun ExternalSessionRadarStrip(
     expanded: Boolean,
     onToggle: () -> Unit,
     onResumeExternal: (ExternalSessionPresenceDto) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = GravityWellTheme.colors
     val type = GravityWellTheme.typography
@@ -497,12 +537,14 @@ private fun ExternalSessionRadarStrip(
     val hasUnsupervised = externalSessions.any { !it.supervised }
     val accent = if (hasUnsupervised) colors.signalAmber else colors.signalCyan
     val bgTint = if (hasUnsupervised) colors.signalAmberDim else colors.signalCyanDim
-    val noun = if (externalSessions.size == 1) "SESSION" else "SESSIONS"
+    val noun = if (externalSessions.size == 1) "session" else "sessions"
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .background(bgTint),
+            .clip(shapes.md)
+            .background(bgTint)
+            .border(spacing.hairlineWidth, accent, shapes.md),
     ) {
         Row(
             modifier = Modifier
@@ -514,13 +556,13 @@ private fun ExternalSessionRadarStrip(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = "EXTERNAL RADAR · ${externalSessions.size} ACTIVE HOST $noun",
-                style = type.labelTelemetry,
+                text = "${externalSessions.size} active host $noun",
+                style = type.labelUi,
                 color = accent,
             )
             Icon(
-                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = if (expanded) "Collapse external radar" else "Expand external radar",
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Collapse active host sessions" else "Expand active host sessions",
                 tint = accent,
             )
         }
@@ -529,7 +571,7 @@ private fun ExternalSessionRadarStrip(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = spacing.md, end = spacing.md, bottom = spacing.sm),
+                    .padding(start = spacing.md, end = spacing.md, bottom = spacing.md),
                 verticalArrangement = Arrangement.spacedBy(spacing.xs),
             ) {
                 externalSessions.forEach { ext ->
@@ -538,8 +580,7 @@ private fun ExternalSessionRadarStrip(
                             .fillMaxWidth()
                             .clip(shapes.sm)
                             .background(colors.stratumBase)
-                            .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-                            .padding(spacing.sm),
+                            .padding(horizontal = spacing.md, vertical = spacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
@@ -554,31 +595,24 @@ private fun ExternalSessionRadarStrip(
                                     color = colors.inkPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
                                 )
                                 Box(
                                     modifier = Modifier
-                                        .clip(shapes.sm)
+                                        .clip(shapes.pill)
                                         .background(if (ext.supervised) colors.signalCyanDim else colors.signalAmberDim)
-                                        .border(
-                                            spacing.hairlineWidth,
-                                            if (ext.supervised) colors.signalCyan else colors.signalAmber,
-                                            shapes.sm,
-                                        )
-                                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
                                 ) {
                                     Text(
-                                        text = if (ext.supervised) "SUPERVISED" else "HOST EXTERNAL",
-                                        style = type.monoMicro,
+                                        text = if (ext.supervised) "Connected" else "External",
+                                        style = type.labelSmallUi,
                                         color = if (ext.supervised) colors.signalCyan else colors.signalAmber,
                                     )
                                 }
                             }
                             Text(
-                                text = buildString {
-                                    append(ext.cwd ?: "unknown cwd")
-                                    if (!ext.supervised) append(" · read-only unless resumed")
-                                },
-                                style = type.monoMicro,
+                                text = ext.cwd?.let { basenameOfPath(it) } ?: "Unknown folder",
+                                style = type.labelSmallUi,
                                 color = colors.inkSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -592,7 +626,7 @@ private fun ExternalSessionRadarStrip(
                                     minHeight = spacing.touchFloor,
                                 ),
                             ) {
-                                Text("RESUME", style = type.labelTelemetry, color = colors.signalCyan)
+                                Text("Resume", style = type.labelUi, color = colors.signalCyan)
                             }
                         }
                     }
@@ -620,19 +654,19 @@ private fun TelemetrySessionRow(
 
     val isPulsing = item.status == "running" || item.status == "starting"
     val pulseAlpha = if (isPulsing) {
-        val transition = rememberInfiniteTransition(label = "session_rail_pulse")
+        val transition = rememberInfiniteTransition(label = "session_dot_pulse")
         val anim by transition.animateFloat(
             initialValue = 1f,
-            targetValue = 0.35f,
+            targetValue = 0.3f,
             animationSpec = infiniteRepeatable(tween(750), RepeatMode.Reverse),
-            label = "rail_alpha",
+            label = "dot_alpha",
         )
         anim
     } else {
         1f
     }
 
-    val railColor = when (item.status) {
+    val dotColor = when (item.status) {
         "running", "starting" -> colors.signalCyan
         "awaiting_approval", "awaiting_question" -> colors.signalAmber
         "idle" -> colors.signalEmerald
@@ -645,29 +679,37 @@ private fun TelemetrySessionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
+            .clip(shapes.md)
             .background(if (isSelected) colors.stratumRaised else colors.stratumBase)
-            .clickable(onClick = onClick),
+            .border(
+                width = spacing.hairlineWidth,
+                color = if (isSelected) colors.signalCyan else colors.hairline,
+                shape = shapes.md,
+            )
+            .clickable(onClick = onClick)
+            .padding(start = spacing.lg, end = spacing.xs, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         Box(
             modifier = Modifier
-                .width(spacing.statusRailWidth)
-                .fillMaxHeight()
+                .padding(top = 7.dp)
+                .size(9.dp)
                 .alpha(pulseAlpha)
-                .background(railColor),
+                .clip(CircleShape)
+                .background(dotColor),
         )
 
+        Spacer(modifier = Modifier.width(spacing.md))
+
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = spacing.md, top = spacing.sm, bottom = spacing.sm),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            // Line 1: title + optional GATEWAY / GATE pills + step count & time
+            // Line 1: Title + Relative Timestamp
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
                     text = item.title,
@@ -677,67 +719,72 @@ private fun TelemetrySessionRow(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                if (item.hasPendingGate) {
-                    Box(
-                        modifier = Modifier
-                            .clip(shapes.sm)
-                            .background(colors.signalAmberDim)
-                            .border(spacing.hairlineWidth, colors.signalAmber, shapes.sm)
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                    ) {
-                        Text("GATE", style = type.monoMicro, color = colors.signalAmber)
-                    }
-                }
-                if (item.titleSource == "gateway") {
-                    Box(
-                        modifier = Modifier
-                            .clip(shapes.sm)
-                            .background(colors.signalVioletDim)
-                            .border(spacing.hairlineWidth, colors.signalViolet, shapes.sm)
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                    ) {
-                        Text("GATEWAY", style = type.monoMicro, color = colors.signalViolet)
-                    }
-                }
+                Spacer(modifier = Modifier.width(spacing.sm))
                 Text(
-                    text = "${item.stepCount}st · ${compactTimestamp(item.updatedAt)}",
-                    style = type.monoMicro,
+                    text = compactTimestamp(item.updatedAt),
+                    style = type.labelSmallUi,
                     color = colors.inkMuted,
                 )
             }
 
-            // Line 2: cwd basename + truncated path
-            Text(
-                text = "${item.cwdBasename} · ${item.cwd}",
-                style = type.monoMicro,
-                color = colors.inkSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            // Line 3: live config telemetry + preview snippet
-            if (item.isLive) {
-                val cfgTag = listOfNotNull(item.modelId, item.thoughtLevel, item.modeId)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" · ")
-                if (cfgTag.isNotEmpty()) {
-                    Text(
-                        text = cfgTag,
-                        style = type.labelTelemetry,
-                        color = colors.signalCyan,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+            // Line 2: Preview snippet (if present)
             if (item.preview.isNotBlank()) {
                 Text(
                     text = item.preview,
                     style = type.bodyCompact,
                     color = colors.inkSecondary,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+
+            // Line 3: Compact metadata badges (project folder, status pill, model)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 2.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clip(shapes.pill)
+                        .background(colors.stratumRaised)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.FolderOpen,
+                        contentDescription = null,
+                        tint = colors.inkMuted,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Text(
+                        text = item.cwdBasename,
+                        style = type.labelSmallUi,
+                        color = colors.inkSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                if (item.hasPendingGate) {
+                    Box(
+                        modifier = Modifier
+                            .clip(shapes.pill)
+                            .background(colors.signalAmberDim)
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    ) {
+                        Text("Needs approval", style = type.labelSmallUi, color = colors.signalAmber)
+                    }
+                } else if (item.isLive && !item.modelId.isNullOrBlank()) {
+                    Text(
+                        text = formatModelDisplayName(item.modelId),
+                        style = type.labelSmallUi,
+                        color = colors.inkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
@@ -747,9 +794,9 @@ private fun TelemetrySessionRow(
                 modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
             ) {
                 Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Session actions for ${item.title}",
-                    tint = colors.inkSecondary,
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "Chat actions for ${item.title}",
+                    tint = colors.inkMuted,
                 )
             }
 
@@ -759,7 +806,8 @@ private fun TelemetrySessionRow(
                 containerColor = colors.stratumRaised,
                 tonalElevation = spacing.elevationZero,
                 shadowElevation = spacing.elevationZero,
-                border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
+                shape = shapes.md,
+                border = BorderStroke(spacing.hairlineWidth, colors.hairline),
             ) {
                 DropdownMenuItem(
                     text = { Text("Rename", style = type.bodyCompact, color = colors.inkPrimary) },
@@ -770,7 +818,7 @@ private fun TelemetrySessionRow(
                 )
                 if (item.isLive) {
                     DropdownMenuItem(
-                        text = { Text("Close Live Process", style = type.bodyCompact, color = colors.signalCrimson) },
+                        text = { Text("Close chat", style = type.bodyCompact, color = colors.signalCrimson) },
                         onClick = {
                             menuExpanded = false
                             onClose()
@@ -782,14 +830,14 @@ private fun TelemetrySessionRow(
                     text = {
                         Column {
                             Text(
-                                text = "Fork Session",
+                                text = "Fork chat",
                                 style = type.bodyCompact,
                                 color = if (forkSupported) colors.inkPrimary else colors.inkMuted,
                             )
                             if (!forkSupported) {
                                 Text(
-                                    text = "-32601 unsupported on agy $agyVersion",
-                                    style = type.monoMicro,
+                                    text = "Not supported on agy $agyVersion",
+                                    style = type.labelSmallUi,
                                     color = colors.inkMuted,
                                 )
                             }
@@ -824,22 +872,24 @@ private fun ResumeSessionSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
             verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
-            Text("ATTACH ACP SUPERVISOR", style = type.labelTelemetry, color = colors.signalCyan)
-            Text(target.title, style = type.headlineSection, color = colors.inkPrimary)
-            Text(target.cwd, style = type.monoCode, color = colors.inkSecondary)
+            Text("Continue chat", style = type.headlineSection, color = colors.inkPrimary)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(target.title, style = type.titleBar, color = colors.inkPrimary)
+                Text(target.cwd, style = type.monoMicro, color = colors.inkSecondary)
+            }
 
             Button(
                 onClick = onResumeWithHistory,
                 enabled = !isResuming,
-                shape = shapes.sm,
+                shape = shapes.pill,
                 elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.signalCyan,
@@ -849,13 +899,16 @@ private fun ResumeSessionSheet(
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = spacing.touchFloor),
             ) {
-                Text("Resume + Load History (session/load)", style = type.labelTelemetry)
+                Text(
+                    text = if (isResuming) "Resuming..." else "Resume with full history",
+                    style = type.labelUi,
+                )
             }
 
             OutlinedButton(
                 onClick = onResumeFast,
                 enabled = !isResuming,
-                shape = shapes.sm,
+                shape = shapes.pill,
                 border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
                 colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = colors.stratumRaised,
@@ -865,9 +918,9 @@ private fun ResumeSessionSheet(
                     .fillMaxWidth()
                     .defaultMinSize(minHeight = spacing.touchFloor),
             ) {
-                Text("Resume Without Replay (session/resume)", style = type.labelTelemetry)
+                Text("Quick resume (skip history replay)", style = type.labelUi)
             }
-            Spacer(modifier = Modifier.height(spacing.md))
+            Spacer(modifier = Modifier.height(spacing.lg))
         }
     }
 }
@@ -889,6 +942,8 @@ private fun NewSessionBottomSheet(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
+    var showAdvanced by remember { mutableStateOf(false) }
+
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedContainerColor = colors.stratumWell,
         unfocusedContainerColor = colors.stratumWell,
@@ -898,243 +953,348 @@ private fun NewSessionBottomSheet(
         unfocusedTextColor = colors.inkPrimary,
     )
 
+    val modelPresets = remember(form.model) {
+        buildList {
+            addAll(listOf("gemini-4-neon", "gemini-3.8-flash", "claude-sonnet-5-5"))
+            if (form.model.isNotBlank()) add(form.model)
+        }.distinct()
+    }
+
+    val thoughtOptions = listOf(
+        "low" to "Low",
+        "medium" to "Medium",
+        "high" to "High",
+        "xhigh" to "Max",
+    )
+
+    val modeOptions = listOf(
+        "default" to "Ask first",
+        "accept-edits" to "Accept edits",
+        "auto" to "Auto-run",
+        "plan" to "Plan only",
+    )
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
             verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
-            Text("SPAWN ANTIGRAVITY ACP SESSION", style = type.labelTelemetry, color = colors.signalCyan)
-            Text("New Supervised Session", style = type.headlineSection, color = colors.inkPrimary)
-
-            OutlinedTextField(
-                value = form.cwd,
-                onValueChange = { v -> onUpdateForm { it.copy(cwd = v, error = null) } },
-                label = { Text("WORKSPACE CWD", style = type.labelTelemetry) },
-                textStyle = type.monoCode,
-                singleLine = true,
-                shape = shapes.sm,
-                colors = fieldColors,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            if (recentWorkspaces.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                ) {
-                    recentWorkspaces.forEach { ws ->
-                        WorkspaceFilterChip(
-                            label = basenameOfPath(ws),
-                            selected = form.cwd == ws,
-                            onClick = { onUpdateForm { it.copy(cwd = ws) } },
-                        )
-                    }
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("New chat", style = type.headlineSection, color = colors.inkPrimary)
+                Text(
+                    text = "Pick a workspace and model to start chatting with Antigravity.",
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
             }
 
-            if (spawnAddDirSupported) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                ) {
-                    OutlinedTextField(
-                        value = form.addDirDraft,
-                        onValueChange = { v -> onUpdateForm { it.copy(addDirDraft = v) } },
-                        label = { Text("--ADD-DIR PATH", style = type.labelTelemetry) },
-                        textStyle = type.monoCode,
-                        singleLine = true,
-                        shape = shapes.sm,
-                        colors = fieldColors,
-                        modifier = Modifier.weight(1f),
-                    )
-                    OutlinedButton(
-                        onClick = onAddExtraDir,
-                        shape = shapes.sm,
-                        border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
-                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+            // 1. Workspace Picker
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                Text("Project folder", style = type.labelUi, color = colors.inkSecondary)
+                if (recentWorkspaces.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(spacing.xs),
                     ) {
-                        Text("ADD", style = type.labelTelemetry, color = colors.signalCyan)
+                        recentWorkspaces.forEach { ws ->
+                            WorkspaceFilterChip(
+                                label = basenameOfPath(ws),
+                                selected = form.cwd == ws,
+                                onClick = { onUpdateForm { it.copy(cwd = ws, error = null) } },
+                            )
+                        }
                     }
                 }
+                OutlinedTextField(
+                    value = form.cwd,
+                    onValueChange = { v -> onUpdateForm { it.copy(cwd = v, error = null) } },
+                    placeholder = { Text("/home/user/projects/my-app", style = type.monoCode, color = colors.inkMuted) },
+                    textStyle = type.monoCode,
+                    singleLine = true,
+                    shape = shapes.sm,
+                    colors = fieldColors,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
-                if (form.addDirs.isNotEmpty()) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                        verticalArrangement = Arrangement.spacedBy(spacing.xs),
-                    ) {
-                        form.addDirs.forEach { dir ->
-                            Row(
-                                modifier = Modifier
-                                    .clip(shapes.sm)
-                                    .background(colors.stratumRaised)
-                                    .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-                                    .defaultMinSize(minHeight = spacing.touchFloor)
-                                    .clickable { onRemoveExtraDir(dir) }
-                                    .padding(horizontal = spacing.sm),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                            ) {
-                                Text(dir, style = type.monoMicro, color = colors.inkPrimary)
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Remove $dir",
-                                    tint = colors.inkMuted,
-                                    modifier = Modifier.size(14.dp),
+            // 2. Model Selector Chips
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                Text("Model", style = type.labelUi, color = colors.inkSecondary)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(spacing.xs),
+                ) {
+                    modelPresets.forEach { m ->
+                        val selected = form.model == m
+                        Box(
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 40.dp)
+                                .clip(shapes.pill)
+                                .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
+                                .border(
+                                    spacing.hairlineWidth,
+                                    if (selected) colors.signalCyan else colors.hairline,
+                                    shapes.pill,
                                 )
-                            }
+                                .clickable { onUpdateForm { it.copy(model = m) } }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = formatModelDisplayName(m),
+                                style = type.labelSmallUi,
+                                color = if (selected) colors.signalCyan else colors.inkPrimary,
+                            )
                         }
                     }
                 }
             }
 
-            OutlinedTextField(
-                value = form.title,
-                onValueChange = { v -> onUpdateForm { it.copy(title = v) } },
-                label = { Text("CUSTOM TITLE (OPTIONAL)", style = type.labelTelemetry) },
-                textStyle = type.bodyProse,
-                singleLine = true,
-                shape = shapes.sm,
-                colors = fieldColors,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            OutlinedTextField(
-                value = form.model,
-                onValueChange = { v -> onUpdateForm { it.copy(model = v) } },
-                label = { Text("MODEL FAMILY", style = type.labelTelemetry) },
-                textStyle = type.monoCode,
-                singleLine = true,
-                shape = shapes.sm,
-                colors = fieldColors,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            Text("THOUGHT LEVEL", style = type.labelTelemetry, color = colors.inkSecondary)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-            ) {
-                listOf("low", "medium", "high", "xhigh").forEach { lvl ->
-                    val selected = form.thoughtLevel == lvl
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .defaultMinSize(minHeight = spacing.touchFloor)
-                            .clip(shapes.sm)
-                            .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
-                            .border(
-                                spacing.hairlineWidth,
-                                if (selected) colors.signalCyan else colors.hairline,
-                                shapes.sm,
+            // 3. Thinking Effort
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                Text("Thinking effort", style = type.labelUi, color = colors.inkSecondary)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(shapes.pill)
+                        .background(colors.stratumRaised)
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    thoughtOptions.forEach { (lvl, label) ->
+                        val selected = form.thoughtLevel == lvl
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 40.dp)
+                                .clip(shapes.pill)
+                                .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
+                                .clickable { onUpdateForm { it.copy(thoughtLevel = lvl) } },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = label,
+                                style = type.labelSmallUi,
+                                color = if (selected) colors.signalCyan else colors.inkSecondary,
                             )
-                            .clickable { onUpdateForm { it.copy(thoughtLevel = lvl) } },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = lvl.uppercase(),
-                            style = type.labelTelemetry,
-                            color = if (selected) colors.signalCyan else colors.inkSecondary,
-                        )
+                        }
                     }
                 }
             }
 
-            Text("EXECUTION MODE", style = type.labelTelemetry, color = colors.inkSecondary)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                verticalArrangement = Arrangement.spacedBy(spacing.xs),
-            ) {
-                listOf("default", "accept-edits", "auto", "plan").forEach { m ->
-                    val selected = form.mode == m
-                    val isRisky = m == "auto"
-                    Box(
-                        modifier = Modifier
-                            .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
-                            .clip(shapes.sm)
-                            .background(
-                                when {
-                                    selected && isRisky -> colors.signalAmberDim
-                                    selected -> colors.signalCyanDim
-                                    else -> colors.stratumRaised
-                                },
-                            )
-                            .border(
-                                spacing.hairlineWidth,
-                                when {
+            // 4. Tool Approval Mode
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                Text("Tool approvals", style = type.labelUi, color = colors.inkSecondary)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                    verticalArrangement = Arrangement.spacedBy(spacing.xs),
+                ) {
+                    modeOptions.forEach { (m, label) ->
+                        val selected = form.mode == m
+                        val isRisky = m == "auto"
+                        Box(
+                            modifier = Modifier
+                                .defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp)
+                                .clip(shapes.pill)
+                                .background(
+                                    when {
+                                        selected && isRisky -> colors.signalAmberDim
+                                        selected -> colors.signalCyanDim
+                                        else -> colors.stratumRaised
+                                    },
+                                )
+                                .border(
+                                    spacing.hairlineWidth,
+                                    when {
+                                        selected && isRisky -> colors.signalAmber
+                                        selected -> colors.signalCyan
+                                        else -> colors.hairline
+                                    },
+                                    shapes.pill,
+                                )
+                                .clickable { onUpdateForm { it.copy(mode = m) } }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = label,
+                                style = type.labelSmallUi,
+                                color = when {
                                     selected && isRisky -> colors.signalAmber
                                     selected -> colors.signalCyan
-                                    else -> colors.hairline
+                                    else -> colors.inkSecondary
                                 },
-                                shapes.sm,
                             )
-                            .clickable { onUpdateForm { it.copy(mode = m) } }
-                            .padding(horizontal = spacing.md),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = m,
-                            style = type.monoMicro,
-                            color = when {
-                                selected && isRisky -> colors.signalAmber
-                                selected -> colors.signalCyan
-                                else -> colors.inkSecondary
-                            },
-                        )
+                        }
                     }
                 }
             }
 
-            OutlinedTextField(
-                value = form.agent,
-                onValueChange = { v -> onUpdateForm { it.copy(agent = v) } },
-                label = { Text("CUSTOM AGENT SLUG (OPTIONAL)", style = type.labelTelemetry) },
-                textStyle = type.monoCode,
-                singleLine = true,
-                shape = shapes.sm,
-                colors = fieldColors,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
+            // 5. Collapsible Advanced Options (all features preserved!)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .defaultMinSize(minHeight = spacing.touchFloor)
                     .clip(shapes.sm)
                     .background(colors.stratumRaised)
-                    .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
+                    .clickable { showAdvanced = !showAdvanced }
                     .padding(horizontal = spacing.md, vertical = spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("SANDBOX CONTAINMENT", style = type.labelTelemetry, color = colors.inkPrimary)
-                    Text("Pass --sandbox at agy acp spawn", style = type.monoMicro, color = colors.inkSecondary)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Tune,
+                        contentDescription = null,
+                        tint = colors.inkSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text("Advanced options", style = type.labelUi, color = colors.inkPrimary)
                 }
-                Switch(
-                    checked = form.sandbox,
-                    onCheckedChange = { checked -> onUpdateForm { it.copy(sandbox = checked) } },
+                Icon(
+                    imageVector = if (showAdvanced) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = if (showAdvanced) "Hide advanced options" else "Show advanced options",
+                    tint = colors.inkMuted,
                 )
             }
 
+            if (showAdvanced) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(spacing.md),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedTextField(
+                        value = form.title,
+                        onValueChange = { v -> onUpdateForm { it.copy(title = v) } },
+                        label = { Text("Custom title (optional)", style = type.labelSmallUi) },
+                        textStyle = type.bodyProse,
+                        singleLine = true,
+                        shape = shapes.sm,
+                        colors = fieldColors,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    OutlinedTextField(
+                        value = form.model,
+                        onValueChange = { v -> onUpdateForm { it.copy(model = v) } },
+                        label = { Text("Model ID override", style = type.labelSmallUi) },
+                        textStyle = type.monoCode,
+                        singleLine = true,
+                        shape = shapes.sm,
+                        colors = fieldColors,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    if (spawnAddDirSupported) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                        ) {
+                            OutlinedTextField(
+                                value = form.addDirDraft,
+                                onValueChange = { v -> onUpdateForm { it.copy(addDirDraft = v) } },
+                                label = { Text("Extra workspace directory", style = type.labelSmallUi) },
+                                textStyle = type.monoCode,
+                                singleLine = true,
+                                shape = shapes.sm,
+                                colors = fieldColors,
+                                modifier = Modifier.weight(1f),
+                            )
+                            OutlinedButton(
+                                onClick = onAddExtraDir,
+                                shape = shapes.pill,
+                                border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
+                                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                            ) {
+                                Text("Add", style = type.labelUi, color = colors.signalCyan)
+                            }
+                        }
+
+                        if (form.addDirs.isNotEmpty()) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                                verticalArrangement = Arrangement.spacedBy(spacing.xs),
+                            ) {
+                                form.addDirs.forEach { dir ->
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(shapes.pill)
+                                            .background(colors.stratumRaised)
+                                            .border(spacing.hairlineWidth, colors.hairline, shapes.pill)
+                                            .defaultMinSize(minHeight = 36.dp)
+                                            .clickable { onRemoveExtraDir(dir) }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(dir, style = type.monoMicro, color = colors.inkPrimary)
+                                        Icon(
+                                            imageVector = Icons.Rounded.Close,
+                                            contentDescription = "Remove $dir",
+                                            tint = colors.inkMuted,
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = form.agent,
+                        onValueChange = { v -> onUpdateForm { it.copy(agent = v) } },
+                        label = { Text("Custom agent slug (optional)", style = type.labelSmallUi) },
+                        textStyle = type.monoCode,
+                        singleLine = true,
+                        shape = shapes.sm,
+                        colors = fieldColors,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(shapes.sm)
+                            .background(colors.stratumRaised)
+                            .padding(horizontal = spacing.md, vertical = spacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Sandbox mode", style = type.labelUi, color = colors.inkPrimary)
+                            Text("Isolate command execution (--sandbox)", style = type.bodyCompact, color = colors.inkSecondary)
+                        }
+                        Switch(
+                            checked = form.sandbox,
+                            onCheckedChange = { checked -> onUpdateForm { it.copy(sandbox = checked) } },
+                        )
+                    }
+                }
+            }
+
             if (form.error != null) {
-                Text(form.error, style = type.monoMicro, color = colors.signalCrimson)
+                Text(form.error, style = type.bodyCompact, color = colors.signalCrimson)
             }
 
             Button(
                 onClick = onSubmit,
                 enabled = !form.isSubmitting && form.cwd.isNotBlank(),
-                shape = shapes.sm,
+                shape = shapes.pill,
                 elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.signalCyan,
@@ -1145,17 +1305,33 @@ private fun NewSessionBottomSheet(
                     .defaultMinSize(minHeight = spacing.touchFloor),
             ) {
                 Text(
-                    text = if (form.isSubmitting) "SPAWNING ACP..." else "Create & Attach Session",
-                    style = type.labelTelemetry,
+                    text = if (form.isSubmitting) "Starting chat..." else "Start chat",
+                    style = type.labelUi,
                 )
             }
-            Spacer(modifier = Modifier.height(spacing.md))
+            Spacer(modifier = Modifier.height(spacing.lg))
         }
     }
 }
 
+private val shortDateFormatter: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("MMM d", Locale.US).withZone(ZoneId.systemDefault())
+
 internal fun compactTimestamp(iso: String): String {
-    if (iso.isBlank()) return "--:--"
+    if (iso.isBlank()) return ""
+    val parsed = runCatching { Instant.parse(iso) }.getOrNull()
+        ?: runCatching { OffsetDateTime.parse(iso).toInstant() }.getOrNull()
+    if (parsed != null) {
+        val elapsed = Duration.between(parsed, Instant.now())
+        val mins = elapsed.toMinutes()
+        return when {
+            mins < 1 -> "Now"
+            mins < 60 -> "${mins}m"
+            mins < 24 * 60 -> "${elapsed.toHours()}h"
+            mins < 7 * 24 * 60 -> "${elapsed.toDays()}d"
+            else -> shortDateFormatter.format(parsed)
+        }
+    }
     val tIdx = iso.indexOf('T')
     if (tIdx >= 0 && iso.length >= tIdx + 6) {
         return iso.substring(tIdx + 1, tIdx + 6)

@@ -10,11 +10,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,17 +20,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -82,8 +82,8 @@ fun HostOnboardingScreen(
     val spacing = GravityWellTheme.spacing
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedContainerColor = colors.stratumWell,
-        unfocusedContainerColor = colors.stratumWell,
+        focusedContainerColor = colors.stratumBase,
+        unfocusedContainerColor = colors.stratumBase,
         focusedBorderColor = colors.signalCyan,
         unfocusedBorderColor = colors.hairline,
         errorBorderColor = colors.signalCrimson,
@@ -99,7 +99,7 @@ fun HostOnboardingScreen(
             .fillMaxSize()
             .background(colors.chassisVoid)
             .verticalScroll(rememberScrollState())
-            .padding(spacing.lg),
+            .padding(horizontal = spacing.xl, vertical = spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.md),
     ) {
         Row(
@@ -107,18 +107,37 @@ fun HostOnboardingScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "GATEWAY PRE-FLIGHT SEQUENCER",
-                    style = type.labelTelemetry,
-                    color = colors.signalCyan,
-                )
-                Spacer(modifier = Modifier.height(spacing.xs))
-                Text(
-                    text = if (state.editingHostId != null) "Re-Verify Antigravity Host" else "Connect Antigravity Host",
-                    style = type.headlineSection,
-                    color = colors.inkPrimary,
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(spacing.md),
+                modifier = Modifier.weight(1f),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(colors.signalCyanDim),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = null,
+                        tint = colors.signalCyan,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Column {
+                    Text(
+                        text = if (state.editingHostId != null) "Re-verify host" else "Connect to Antigravity",
+                        style = type.headlineSection,
+                        color = colors.inkPrimary,
+                    )
+                    Text(
+                        text = "Gravity Well gateway",
+                        style = type.bodyCompact,
+                        color = colors.inkSecondary,
+                    )
+                }
             }
             if (onCancel != null) {
                 IconButton(
@@ -126,8 +145,8 @@ fun HostOnboardingScreen(
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close host onboarding",
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Close host setup",
                         tint = colors.inkSecondary,
                     )
                 }
@@ -135,7 +154,7 @@ fun HostOnboardingScreen(
         }
 
         Text(
-            text = "All 3 diagnostic legs must pass sequentially before a bearer token is sealed into AndroidKeyStore.",
+            text = "Enter your gateway address and token. We'll run a quick 3-step check before storing your token securely in Android Keystore.",
             style = type.bodyCompact,
             color = colors.inkSecondary,
         )
@@ -143,8 +162,8 @@ fun HostOnboardingScreen(
         OutlinedTextField(
             value = state.label,
             onValueChange = onLabelChange,
-            label = { Text("HOST LABEL (OPTIONAL — DEFAULTS TO HOSTNAME)", style = type.labelTelemetry) },
-            placeholder = { Text("aurora", style = type.monoCode, color = colors.inkMuted) },
+            label = { Text("Host name (optional)", style = type.labelSmallUi) },
+            placeholder = { Text("aurora", style = type.bodyProse, color = colors.inkMuted) },
             textStyle = type.bodyProse,
             singleLine = true,
             shape = shapes.sm,
@@ -155,7 +174,7 @@ fun HostOnboardingScreen(
         OutlinedTextField(
             value = state.baseUrl,
             onValueChange = onBaseUrlChange,
-            label = { Text("GATEWAY BASE URL", style = type.labelTelemetry) },
+            label = { Text("Gateway URL", style = type.labelSmallUi) },
             placeholder = { Text("https://aurora.tailnet.ts.net:9340", style = type.monoCode, color = colors.inkMuted) },
             textStyle = type.monoCode,
             singleLine = true,
@@ -179,7 +198,7 @@ fun HostOnboardingScreen(
             )
         } else if (state.showDebugCleartextWarning) {
             DiagnosticNoticeBanner(
-                text = "DEBUG CLEARTEXT LAN MODE - never use over untrusted networks",
+                text = "Debug HTTP mode — use only on trusted local networks.",
                 bgColor = colors.signalAmberDim,
                 borderColor = colors.signalAmber,
                 inkColor = colors.signalAmber,
@@ -189,7 +208,7 @@ fun HostOnboardingScreen(
         OutlinedTextField(
             value = state.bearerToken,
             onValueChange = onTokenChange,
-            label = { Text("BEARER TOKEN (KEYSTORE AES-GCM)", style = type.labelTelemetry) },
+            label = { Text("Access token", style = type.labelSmallUi) },
             placeholder = { Text("Paste GRAVITY_WELL_TOKEN", style = type.monoCode, color = colors.inkMuted) },
             textStyle = type.monoCode,
             singleLine = true,
@@ -209,8 +228,8 @@ fun HostOnboardingScreen(
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
                     Icon(
-                        imageVector = if (state.isTokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = if (state.isTokenVisible) "Hide bearer token" else "Show bearer token",
+                        imageVector = if (state.isTokenVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                        contentDescription = if (state.isTokenVisible) "Hide token" else "Show token",
                         tint = colors.inkSecondary,
                     )
                 }
@@ -223,7 +242,7 @@ fun HostOnboardingScreen(
         OutlinedButton(
             onClick = onRunPreflight,
             enabled = !state.isRunningPreflight && state.baseUrl.isNotBlank(),
-            shape = shapes.sm,
+            shape = shapes.pill,
             border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
             colors = ButtonDefaults.outlinedButtonColors(
                 containerColor = colors.signalCyanDim,
@@ -242,43 +261,43 @@ fun HostOnboardingScreen(
                     color = colors.signalCyan,
                 )
                 Spacer(modifier = Modifier.width(spacing.sm))
-                Text("RUNNING SEQUENTIAL PRE-FLIGHT...", style = type.labelTelemetry)
+                Text("Checking connection...", style = type.labelUi)
             } else {
-                Text("Run Pre-Flight Check", style = type.labelTelemetry)
+                Text("Test connection", style = type.labelUi)
             }
         }
 
-        HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+        Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+            Text(
+                text = "Connection checks",
+                style = type.labelUi,
+                color = colors.inkSecondary,
+            )
 
-        Text(
-            text = "DIAGNOSTIC TELEMETRY LEGS",
-            style = type.labelTelemetry,
-            color = colors.inkSecondary,
-        )
+            PreflightLegRow(
+                stepTitle = "1. Server & TLS",
+                endpointHint = "GET /api/health",
+                legState = state.legs[VerificationLegId.REACHABILITY_TLS]
+                    ?: VerificationLegState(VerificationLegId.REACHABILITY_TLS),
+                capabilities = null,
+            )
 
-        PreflightLegRow(
-            legNumber = "LEG 01 · REACHABILITY & TLS",
-            endpointHint = "GET /api/health",
-            legState = state.legs[VerificationLegId.REACHABILITY_TLS]
-                ?: VerificationLegState(VerificationLegId.REACHABILITY_TLS),
-            capabilities = null,
-        )
+            PreflightLegRow(
+                stepTitle = "2. Authentication & capabilities",
+                endpointHint = "GET /api/info",
+                legState = state.legs[VerificationLegId.AUTH_CAPABILITIES]
+                    ?: VerificationLegState(VerificationLegId.AUTH_CAPABILITIES),
+                capabilities = state.lastReport?.info?.capabilities,
+            )
 
-        PreflightLegRow(
-            legNumber = "LEG 02 · AUTH & CAPABILITIES",
-            endpointHint = "GET /api/info",
-            legState = state.legs[VerificationLegId.AUTH_CAPABILITIES]
-                ?: VerificationLegState(VerificationLegId.AUTH_CAPABILITIES),
-            capabilities = state.lastReport?.info?.capabilities,
-        )
-
-        PreflightLegRow(
-            legNumber = "LEG 03 · LIVE STREAM TICKET",
-            endpointHint = "POST /api/ws-ticket -> WS /api/ws",
-            legState = state.legs[VerificationLegId.WS_TICKET_HELLO]
-                ?: VerificationLegState(VerificationLegId.WS_TICKET_HELLO),
-            capabilities = null,
-        )
+            PreflightLegRow(
+                stepTitle = "3. Live chat stream",
+                endpointHint = "POST /api/ws-ticket · WS /api/ws",
+                legState = state.legs[VerificationLegId.WS_TICKET_HELLO]
+                    ?: VerificationLegState(VerificationLegId.WS_TICKET_HELLO),
+                capabilities = null,
+            )
+        }
 
         if (state.saveError != null) {
             DiagnosticNoticeBanner(
@@ -292,7 +311,7 @@ fun HostOnboardingScreen(
         Button(
             onClick = onSaveVerifiedHost,
             enabled = state.canSaveVerifiedHost,
-            shape = shapes.sm,
+            shape = shapes.pill,
             elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = colors.signalEmerald,
@@ -302,22 +321,19 @@ fun HostOnboardingScreen(
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = spacing.touchFloor)
-                .border(
-                    width = spacing.hairlineWidth,
-                    color = if (state.canSaveVerifiedHost) colors.signalEmerald else colors.hairline,
-                    shape = shapes.sm,
-                ),
+                .defaultMinSize(minHeight = spacing.touchFloor),
         ) {
-            Text("Save Verified Host", style = type.labelTelemetry)
+            Text("Save & connect", style = type.labelUi)
         }
+
+        Spacer(modifier = Modifier.height(spacing.md))
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PreflightLegRow(
-    legNumber: String,
+    stepTitle: String,
     endpointHint: String,
     legState: VerificationLegState,
     capabilities: CapabilitiesDto?,
@@ -327,142 +343,135 @@ private fun PreflightLegRow(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
-    val railColor = when (legState.status) {
-        VerificationLegStatus.NOT_RUN -> colors.hairlineStrong
+    val statusColor = when (legState.status) {
+        VerificationLegStatus.NOT_RUN -> colors.inkMuted
         VerificationLegStatus.RUNNING -> colors.signalCyan
         VerificationLegStatus.VERIFIED -> colors.signalEmerald
         VerificationLegStatus.FAILED -> colors.signalCrimson
     }
 
     val statusText = when (legState.status) {
-        VerificationLegStatus.NOT_RUN -> "STANDBY"
-        VerificationLegStatus.RUNNING -> "PROBING"
-        VerificationLegStatus.VERIFIED -> "VERIFIED"
-        VerificationLegStatus.FAILED -> "FAILED"
+        VerificationLegStatus.NOT_RUN -> "Waiting"
+        VerificationLegStatus.RUNNING -> "Checking..."
+        VerificationLegStatus.VERIFIED -> "Verified"
+        VerificationLegStatus.FAILED -> "Failed"
     }
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .clip(shapes.sm)
-            .background(colors.stratumRaised)
-            .border(spacing.hairlineWidth, colors.hairline, shapes.sm),
+            .clip(shapes.md)
+            .background(colors.stratumBase)
+            .border(
+                spacing.hairlineWidth,
+                if (legState.status == VerificationLegStatus.FAILED) colors.signalCrimson else colors.hairline,
+                shapes.md,
+            )
+            .padding(spacing.md),
+        verticalArrangement = Arrangement.spacedBy(spacing.xs),
     ) {
-        Box(
-            modifier = Modifier
-                .width(spacing.statusRailWidth)
-                .fillMaxHeight()
-                .background(railColor),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = stepTitle,
+                style = type.labelUi,
+                color = colors.inkPrimary,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (legState.latencyMs != null) {
+                    Text(
+                        text = "${legState.latencyMs} ms",
+                        style = type.monoMicro,
+                        color = colors.inkMuted,
+                    )
+                }
+                when (legState.status) {
+                    VerificationLegStatus.VERIFIED -> Icon(
+                        imageVector = Icons.Rounded.CheckCircle,
+                        contentDescription = "Verified",
+                        tint = colors.signalEmerald,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    VerificationLegStatus.FAILED -> Icon(
+                        imageVector = Icons.Rounded.ErrorOutline,
+                        contentDescription = "Failed",
+                        tint = colors.signalCrimson,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    VerificationLegStatus.RUNNING -> CircularProgressIndicator(
+                        modifier = Modifier.size(13.dp),
+                        strokeWidth = 2.dp,
+                        color = colors.signalCyan,
+                    )
+                    VerificationLegStatus.NOT_RUN -> Unit
+                }
+                Text(
+                    text = statusText,
+                    style = type.labelSmallUi,
+                    color = statusColor,
+                )
+            }
+        }
+
+        Text(
+            text = endpointHint,
+            style = type.monoMicro,
+            color = colors.inkMuted,
         )
 
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.xs),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+        if (!legState.summary.isNullOrBlank()) {
+            Text(
+                text = legState.summary,
+                style = type.bodyCompact,
+                color = colors.inkSecondary,
+            )
+        }
+
+        if (legState.status == VerificationLegStatus.VERIFIED && capabilities != null) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                verticalArrangement = Arrangement.spacedBy(spacing.xs),
+            ) {
+                CapabilityChip("Resume", capabilities.resumeSession)
+                CapabilityChip("History", capabilities.loadSession)
+                CapabilityChip("Questions", capabilities.elicitation)
+                CapabilityChip("Rename", capabilities.gatewayTitleOverride)
+                CapabilityChip(
+                    label = if (capabilities.fork) "Fork" else "Fork unavailable",
+                    supported = capabilities.fork,
+                )
+            }
+        }
+
+        if (legState.status == VerificationLegStatus.FAILED) {
+            val diagStatus = legState.errorStatus?.toString() ?: "IO"
+            val diagCode = legState.errorCode ?: "error"
+            val diagMsg = legState.errorMessage ?: "Connection check failed"
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(shapes.sm)
+                    .background(colors.stratumWell)
+                    .border(spacing.hairlineWidth, colors.signalCrimson, shapes.sm)
+                    .padding(spacing.sm),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = legNumber,
-                    style = type.labelTelemetry,
+                    text = "$diagStatus · $diagCode",
+                    style = type.monoCode,
+                    color = colors.signalCrimson,
+                )
+                Text(
+                    text = diagMsg,
+                    style = type.bodyCompact,
                     color = colors.inkPrimary,
                 )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                ) {
-                    if (legState.latencyMs != null) {
-                        Text(
-                            text = "${legState.latencyMs} ms",
-                            style = type.monoMicro,
-                            color = colors.inkSecondary,
-                        )
-                    }
-                    when (legState.status) {
-                        VerificationLegStatus.VERIFIED -> Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Verified",
-                            tint = colors.signalEmerald,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        VerificationLegStatus.FAILED -> Icon(
-                            imageVector = Icons.Default.ErrorOutline,
-                            contentDescription = "Failed",
-                            tint = colors.signalCrimson,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        else -> Unit
-                    }
-                    Text(
-                        text = statusText,
-                        style = type.monoMicro,
-                        color = railColor,
-                    )
-                }
-            }
-
-            Text(
-                text = endpointHint,
-                style = type.monoMicro,
-                color = colors.inkMuted,
-            )
-
-            if (!legState.summary.isNullOrBlank()) {
-                Text(
-                    text = legState.summary,
-                    style = type.monoCode,
-                    color = colors.inkSecondary,
-                )
-            }
-
-            if (legState.status == VerificationLegStatus.VERIFIED && capabilities != null) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                    verticalArrangement = Arrangement.spacedBy(spacing.xs),
-                ) {
-                    CapabilityChip("resume: ${if (capabilities.resumeSession) "on" else "off"}", capabilities.resumeSession)
-                    CapabilityChip("load: ${if (capabilities.loadSession) "on" else "off"}", capabilities.loadSession)
-                    CapabilityChip("elicitation: ${if (capabilities.elicitation) "on" else "off"}", capabilities.elicitation)
-                    CapabilityChip(
-                        "title_override: ${if (capabilities.gatewayTitleOverride) "on" else "off"}",
-                        capabilities.gatewayTitleOverride,
-                    )
-                    CapabilityChip(
-                        label = if (capabilities.fork) "fork: supported" else "fork: unsupported",
-                        supported = capabilities.fork,
-                    )
-                }
-            }
-
-            if (legState.status == VerificationLegStatus.FAILED) {
-                val diagStatus = legState.errorStatus?.toString() ?: "IO"
-                val diagCode = legState.errorCode ?: "error"
-                val diagMsg = legState.errorMessage ?: "Diagnostic leg failed"
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(shapes.sm)
-                        .background(colors.stratumWell)
-                        .border(spacing.hairlineWidth, colors.signalCrimson, shapes.sm)
-                        .padding(spacing.sm),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        text = "$diagStatus $diagCode",
-                        style = type.monoCode,
-                        color = colors.signalCrimson,
-                    )
-                    Text(
-                        text = diagMsg,
-                        style = type.monoMicro,
-                        color = colors.inkPrimary,
-                    )
-                }
             }
         }
     }
@@ -476,23 +485,17 @@ private fun CapabilityChip(
     val colors = GravityWellTheme.colors
     val type = GravityWellTheme.typography
     val shapes = GravityWellTheme.shapes
-    val spacing = GravityWellTheme.spacing
 
     Box(
         modifier = Modifier
-            .clip(shapes.sm)
-            .background(if (supported) colors.signalEmeraldDim else colors.signalAmberDim)
-            .border(
-                width = spacing.hairlineWidth,
-                color = if (supported) colors.signalEmerald else colors.signalAmber,
-                shape = shapes.sm,
-            )
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .clip(shapes.pill)
+            .background(if (supported) colors.signalEmeraldDim else colors.stratumRaised)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
         Text(
             text = label,
-            style = type.monoMicro,
-            color = if (supported) colors.signalEmerald else colors.signalAmber,
+            style = type.labelSmallUi,
+            color = if (supported) colors.signalEmerald else colors.inkMuted,
         )
     }
 }
@@ -514,11 +517,11 @@ private fun DiagnosticNoticeBanner(
             .clip(shapes.sm)
             .background(bgColor)
             .border(spacing.hairlineWidth, borderColor, shapes.sm)
-            .padding(spacing.sm),
+            .padding(spacing.md),
     ) {
         Text(
             text = text,
-            style = type.monoMicro,
+            style = type.bodyCompact,
             color = inkColor,
         )
     }
@@ -545,13 +548,13 @@ fun HostSwitcherSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -559,27 +562,27 @@ fun HostSwitcherSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "GATEWAY HOSTS",
+                    text = "Hosts",
                     style = type.headlineSection,
                     color = colors.inkPrimary,
                 )
                 OutlinedButton(
                     onClick = onAddNewHost,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
                     colors = ButtonDefaults.outlinedButtonColors(
                         containerColor = colors.signalCyanDim,
                         contentColor = colors.signalCyan,
                     ),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Add,
+                        imageVector = Icons.Rounded.Add,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(modifier = Modifier.width(spacing.xs))
-                    Text("ADD HOST", style = type.labelTelemetry)
+                    Text("Add host", style = type.labelUi)
                 }
             }
 
@@ -590,16 +593,16 @@ fun HostSwitcherSheet(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(shapes.sm)
+                        .clip(shapes.md)
                         .background(if (isSelected) colors.signalCyanDim else colors.stratumRaised)
                         .border(
                             width = spacing.hairlineWidth,
                             color = if (isSelected) colors.signalCyan else colors.hairline,
-                            shape = shapes.sm,
+                            shape = shapes.md,
                         )
                         .clickable { onSelectHost(host.hostId) }
                         .defaultMinSize(minHeight = spacing.touchFloor)
-                        .padding(horizontal = spacing.md, vertical = spacing.sm)
+                        .padding(start = spacing.md, end = spacing.xs, top = spacing.sm, bottom = spacing.sm)
                         .semantics { contentDescription = "Select host ${host.label}" },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -627,7 +630,7 @@ fun HostSwitcherSheet(
                         modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = Icons.Rounded.Refresh,
                             contentDescription = "Re-verify ${host.label}",
                             tint = colors.signalCyan,
                         )
@@ -637,7 +640,7 @@ fun HostSwitcherSheet(
                         modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            imageVector = Icons.Rounded.DeleteOutline,
                             contentDescription = "Remove ${host.label}",
                             tint = colors.signalCrimson,
                         )

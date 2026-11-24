@@ -28,13 +28,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.OpenInFull
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SystemUpdateAlt
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SystemUpdateAlt
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -53,11 +55,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -66,6 +70,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import us.snakepit.gravitywell.theme.GravityWellTheme
 import us.snakepit.gravitywell.ui.sessions.ExternalSessionPresenceDto
+import us.snakepit.gravitywell.ui.sessions.basenameOfPath
 import us.snakepit.gravitywell.ui.shell.AdaptiveShellBreakpoints
 
 @Composable
@@ -95,7 +100,7 @@ fun ObservatoryScreen(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
-    // Live 1Hz clock driving tabular T-XXh YYm ZZs reset countdowns while visible
+    // Live 1Hz clock driving tabular reset countdowns while visible
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -103,6 +108,9 @@ fun ObservatoryScreen(
             delay(1_000L)
         }
     }
+
+    var daemonExpanded by remember { mutableStateOf(false) }
+    var logsExpanded by remember { mutableStateOf(false) }
 
     BoxWithConstraints(
         modifier = modifier
@@ -115,33 +123,26 @@ fun ObservatoryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.md),
+                .padding(horizontal = spacing.lg, vertical = spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.lg),
         ) {
-            // ── Top Section Header ───────────────────────────────────────────
+            // ── Compact Subtitle & Refresh Pill ──────────────────────────────
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "OBSERVATORY · INSTRUMENTATION",
-                        style = type.labelTelemetry,
-                        color = colors.signalCyan,
-                    )
-                    Text(
-                        text = state.hostLabel.ifBlank { "Host Telemetry" },
-                        style = type.headlineSection,
-                        color = colors.inkPrimary,
-                    )
-                }
+                Text(
+                    text = state.hostLabel.ifBlank { "Host overview" },
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
                 OutlinedButton(
                     onClick = onRefreshAll,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
-                    contentPadding = PaddingValues(horizontal = spacing.md, vertical = 0.dp),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                 ) {
                     if (state.isLoading) {
                         CircularProgressIndicator(
@@ -151,14 +152,14 @@ fun ObservatoryScreen(
                         )
                     } else {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh telemetry",
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Refresh status",
                             tint = colors.signalCyan,
                             modifier = Modifier.size(16.dp),
                         )
                     }
-                    Spacer(modifier = Modifier.width(spacing.xs))
-                    Text("SYNC", style = type.labelTelemetry, color = colors.inkPrimary)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Refresh", style = type.labelUi, color = colors.inkPrimary)
                 }
             }
 
@@ -170,13 +171,13 @@ fun ObservatoryScreen(
                         .clip(shapes.sm)
                         .background(colors.signalCrimsonDim)
                         .border(spacing.hairlineWidth, colors.signalCrimson, shapes.sm)
-                        .padding(horizontal = spacing.md, vertical = spacing.xs),
+                        .padding(start = spacing.md, end = spacing.xs, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
                         text = state.errorBanner,
-                        style = type.monoCode,
+                        style = type.bodyCompact,
                         color = colors.signalCrimson,
                         modifier = Modifier.weight(1f),
                     )
@@ -185,7 +186,7 @@ fun ObservatoryScreen(
                         modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = Icons.Rounded.Close,
                             contentDescription = "Dismiss error",
                             tint = colors.signalCrimson,
                         )
@@ -193,13 +194,7 @@ fun ObservatoryScreen(
                 }
             }
 
-            // ── 1. Host Vitals (2x2 on <600dp, 4x1 on >=600dp) ──────────────
-            HostVitalsGridSection(
-                status = state.status,
-                isExpanded = isExpanded,
-            )
-
-            // ── 2. Quota & Credit Gauges (10-segment linear fuel bars) ──────
+            // ── 1. Usage & Quotas (Front & Center) ──────────────────────────
             QuotaGaugesSection(
                 usage = state.usage,
                 isRefreshingUsage = state.isRefreshingUsage,
@@ -208,75 +203,93 @@ fun ObservatoryScreen(
                 onRefreshBypassCache = onRefreshUsageBypassCache,
             )
 
-            // ── 3. External Session Presence Radar (FLOCK-verified) ─────────
+            // ── 2. Active Host Sessions (FLOCK-verified) ────────────────────
             ExternalRadarSection(
                 status = state.status,
                 onOpenOrResumeSession = onOpenOrResumeExternalSession,
             )
 
-            // ── 4 & 5. Remote-Control Daemon + Confirm-Gated `agy update` ───
-            if (isExpanded) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(spacing.md),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    RemoteControlDaemonPanel(
-                        remoteControl = state.status?.remoteControl,
-                        nameDraft = state.daemonNameDraft,
-                        sessionScoped = state.daemonSessionScoped,
-                        isBusy = state.isDaemonBusy,
-                        onNameDraftChange = onUpdateDaemonNameDraft,
-                        onSessionScopedChange = onSetDaemonSessionScoped,
-                        onStart = onStartDaemon,
-                        onStop = onStopDaemon,
-                        modifier = Modifier.weight(1f),
-                    )
+            // ── 3. Host Health (2x2 on <600dp, 4x1 on >=600dp) ──────────────
+            HostVitalsGridSection(
+                status = state.status,
+                isExpanded = isExpanded,
+            )
+
+            // ── 4. Host Tools (Updater, Remote-Control Daemon, Logs) ────────
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
+                Text("Host tools", style = type.titleBar, color = colors.inkPrimary)
+
+                if (isExpanded) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(spacing.md),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        CliUpdaterPanel(
+                            updater = state.status?.updater,
+                            lastUpdateResult = state.lastUpdateResult,
+                            isUpdating = state.isUpdatingCli,
+                            onRequestUpdateConfirm = onOpenUpdateConfirmSheet,
+                            modifier = Modifier.weight(1f),
+                        )
+                        RemoteControlDaemonPanel(
+                            remoteControl = state.status?.remoteControl,
+                            nameDraft = state.daemonNameDraft,
+                            sessionScoped = state.daemonSessionScoped,
+                            isBusy = state.isDaemonBusy,
+                            expanded = daemonExpanded,
+                            onToggleExpanded = { daemonExpanded = !daemonExpanded },
+                            onNameDraftChange = onUpdateDaemonNameDraft,
+                            onSessionScopedChange = onSetDaemonSessionScoped,
+                            onStart = onStartDaemon,
+                            onStop = onStopDaemon,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
                     CliUpdaterPanel(
                         updater = state.status?.updater,
                         lastUpdateResult = state.lastUpdateResult,
                         isUpdating = state.isUpdatingCli,
                         onRequestUpdateConfirm = onOpenUpdateConfirmSheet,
-                        modifier = Modifier.weight(1f),
+                    )
+                    RemoteControlDaemonPanel(
+                        remoteControl = state.status?.remoteControl,
+                        nameDraft = state.daemonNameDraft,
+                        sessionScoped = state.daemonSessionScoped,
+                        isBusy = state.isDaemonBusy,
+                        expanded = daemonExpanded,
+                        onToggleExpanded = { daemonExpanded = !daemonExpanded },
+                        onNameDraftChange = onUpdateDaemonNameDraft,
+                        onSessionScopedChange = onSetDaemonSessionScoped,
+                        onStart = onStartDaemon,
+                        onStop = onStopDaemon,
                     )
                 }
-            } else {
-                RemoteControlDaemonPanel(
-                    remoteControl = state.status?.remoteControl,
-                    nameDraft = state.daemonNameDraft,
-                    sessionScoped = state.daemonSessionScoped,
-                    isBusy = state.isDaemonBusy,
-                    onNameDraftChange = onUpdateDaemonNameDraft,
-                    onSessionScopedChange = onSetDaemonSessionScoped,
-                    onStart = onStartDaemon,
-                    onStop = onStopDaemon,
-                )
-                CliUpdaterPanel(
-                    updater = state.status?.updater,
-                    lastUpdateResult = state.lastUpdateResult,
-                    isUpdating = state.isUpdatingCli,
-                    onRequestUpdateConfirm = onOpenUpdateConfirmSheet,
+
+                // 5. Searchable `cli.log` & `crashes/` Viewer (Collapsible)
+                ObservatoryLogsPanel(
+                    source = state.logSource,
+                    activeFile = state.activeLogFile,
+                    availableCrashFiles = state.availableCrashFiles,
+                    selectedCrashFile = state.selectedCrashFile,
+                    searchQuery = state.logSearchQuery,
+                    tailLines = state.logTailLines,
+                    lines = state.logLines,
+                    totalMatched = state.logTotalMatched,
+                    isLoading = state.isLogsLoading,
+                    expanded = logsExpanded,
+                    onToggleExpanded = { logsExpanded = !logsExpanded },
+                    onSelectSource = onSelectLogSource,
+                    onSelectCrashFile = onSelectCrashFile,
+                    onSelectTail = onSelectLogTail,
+                    onSearchQueryChange = onUpdateLogSearchQuery,
+                    onRefreshLogs = onFetchLogsNow,
+                    onExpandSheet = { onSetShowExpandedLogSheet(true) },
                 )
             }
 
-            // ── 6. Searchable `cli.log` & `crashes/` Viewer ─────────────────
-            ObservatoryLogsPanel(
-                source = state.logSource,
-                activeFile = state.activeLogFile,
-                availableCrashFiles = state.availableCrashFiles,
-                selectedCrashFile = state.selectedCrashFile,
-                searchQuery = state.logSearchQuery,
-                tailLines = state.logTailLines,
-                lines = state.logLines,
-                totalMatched = state.logTotalMatched,
-                isLoading = state.isLogsLoading,
-                onSelectSource = onSelectLogSource,
-                onSelectCrashFile = onSelectCrashFile,
-                onSelectTail = onSelectLogTail,
-                onSearchQueryChange = onUpdateLogSearchQuery,
-                onRefreshLogs = onFetchLogsNow,
-                onExpandSheet = { onSetShowExpandedLogSheet(true) },
-            )
+            Spacer(modifier = Modifier.height(spacing.md))
         }
     }
 
@@ -332,7 +345,7 @@ private fun HostVitalsGridSection(
     val cpuSub = if (vitals != null) {
         String.format(Locale.US, "Load %.2f · %.2f", vitals.loadAvg1m, vitals.loadAvg5m)
     } else {
-        "Load 1m · 5m"
+        "Load average"
     }
     val ramHeadline = if (vitals != null) {
         ObservatoryTelemetryMath.formatRamReadout(vitals.ramUsedMb, vitals.ramTotalMb)
@@ -340,9 +353,9 @@ private fun HostVitalsGridSection(
         "—"
     }
     val ramPct = if (vitals != null && vitals.ramTotalMb > 0L) {
-        String.format(Locale.US, "%.0f%% RSS/Mem", (vitals.ramUsedMb.toDouble() / vitals.ramTotalMb.toDouble()) * 100.0)
+        String.format(Locale.US, "%.0f%% used", (vitals.ramUsedMb.toDouble() / vitals.ramTotalMb.toDouble()) * 100.0)
     } else {
-        "Host Memory"
+        "Memory"
     }
     val diskHeadline = if (vitals != null) {
         ObservatoryTelemetryMath.formatDiskReadout(vitals.diskUsedGb, vitals.diskTotalGb)
@@ -350,33 +363,33 @@ private fun HostVitalsGridSection(
         "—"
     }
     val diskPct = if (vitals != null && vitals.diskTotalGb > 0.0) {
-        String.format(Locale.US, "%.0f%% NVMe used", (vitals.diskUsedGb / vitals.diskTotalGb) * 100.0)
+        String.format(Locale.US, "%.0f%% used", (vitals.diskUsedGb / vitals.diskTotalGb) * 100.0)
     } else {
-        "Host Storage"
+        "Storage"
     }
     val radarCount = status?.activeExternalCount ?: 0
     val staleIgnored = status?.staleLockCount ?: 0
     val radarSub = if (staleIgnored > 0) {
-        "FLOCK live ($staleIgnored stale ignored)"
+        "Active ($staleIgnored stale ignored)"
     } else {
-        "FLOCK-verified live"
+        "Active on host"
     }
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
-        Text("HOST VITALS", style = type.labelTelemetry, color = colors.inkSecondary)
+        Text("Host health", style = type.titleBar, color = colors.inkPrimary)
         if (isExpanded) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(spacing.md),
             ) {
-                VitalsMetricTile("CPU / LOAD", cpuHeadline, cpuSub, Modifier.weight(1f))
-                VitalsMetricTile("RAM USED / TOTAL", ramHeadline, ramPct, Modifier.weight(1f))
-                VitalsMetricTile("NVME USED / TOTAL", diskHeadline, diskPct, Modifier.weight(1f))
+                VitalsMetricTile("CPU", cpuHeadline, cpuSub, Modifier.weight(1f))
+                VitalsMetricTile("Memory", ramHeadline, ramPct, Modifier.weight(1f))
+                VitalsMetricTile("Storage", diskHeadline, diskPct, Modifier.weight(1f))
                 VitalsMetricTile(
-                    label = "EXTERNAL RADAR",
+                    label = "Host sessions",
                     headline = radarCount.toString(),
                     subtitle = radarSub,
                     modifier = Modifier.weight(1f),
@@ -389,16 +402,16 @@ private fun HostVitalsGridSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(spacing.sm),
                 ) {
-                    VitalsMetricTile("CPU / LOAD", cpuHeadline, cpuSub, Modifier.weight(1f))
-                    VitalsMetricTile("RAM USED / TOTAL", ramHeadline, ramPct, Modifier.weight(1f))
+                    VitalsMetricTile("CPU", cpuHeadline, cpuSub, Modifier.weight(1f))
+                    VitalsMetricTile("Memory", ramHeadline, ramPct, Modifier.weight(1f))
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(spacing.sm),
                 ) {
-                    VitalsMetricTile("NVME USED / TOTAL", diskHeadline, diskPct, Modifier.weight(1f))
+                    VitalsMetricTile("Storage", diskHeadline, diskPct, Modifier.weight(1f))
                     VitalsMetricTile(
-                        label = "EXTERNAL RADAR",
+                        label = "Host sessions",
                         headline = radarCount.toString(),
                         subtitle = radarSub,
                         modifier = Modifier.weight(1f),
@@ -416,7 +429,7 @@ private fun VitalsMetricTile(
     headline: String,
     subtitle: String,
     modifier: Modifier = Modifier,
-    accentColor: androidx.compose.ui.graphics.Color? = null,
+    accentColor: Color? = null,
 ) {
     val colors = GravityWellTheme.colors
     val type = GravityWellTheme.typography
@@ -428,10 +441,10 @@ private fun VitalsMetricTile(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(label, style = type.labelTelemetry, color = colors.inkSecondary, maxLines = 1)
+        Text(label, style = type.labelSmallUi, color = colors.inkSecondary, maxLines = 1)
         Text(
             text = headline,
             style = type.displayMetric,
@@ -441,7 +454,7 @@ private fun VitalsMetricTile(
         )
         Text(
             text = subtitle,
-            style = type.monoMicro,
+            style = type.labelSmallUi,
             color = colors.inkMuted,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -477,36 +490,26 @@ private fun QuotaGaugesSection(
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
                 modifier = Modifier.weight(1f),
             ) {
-                Text("QUOTA & CREDIT GAUGES", style = type.labelTelemetry, color = colors.inkSecondary)
+                Text("Usage & quota", style = type.titleBar, color = colors.inkPrimary)
                 if (usage?.stale == true) {
                     Box(
                         modifier = Modifier
-                            .clip(shapes.sm)
+                            .clip(shapes.pill)
                             .background(colors.signalAmberDim)
-                            .border(spacing.hairlineWidth, colors.signalAmber, shapes.sm)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
                     ) {
-                        Text("STALE", style = type.labelTelemetry, color = colors.signalAmber)
+                        Text("Stale", style = type.labelSmallUi, color = colors.signalAmber)
                     }
-                }
-                if (!usage?.cachedAt.isNullOrBlank()) {
-                    Text(
-                        text = usage.cachedAt,
-                        style = type.monoMicro,
-                        color = colors.inkMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                 }
             }
 
             OutlinedButton(
                 onClick = onRefreshBypassCache,
                 enabled = !isRefreshingUsage,
-                shape = shapes.sm,
+                shape = shapes.pill,
                 border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-                contentPadding = PaddingValues(horizontal = spacing.md, vertical = 0.dp),
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
             ) {
                 if (isRefreshingUsage) {
                     CircularProgressIndicator(
@@ -516,7 +519,7 @@ private fun QuotaGaugesSection(
                     )
                     Spacer(modifier = Modifier.width(spacing.xs))
                 }
-                Text("REFRESH /USAGE", style = type.labelTelemetry, color = colors.signalCyan)
+                Text("Check quota", style = type.labelUi, color = colors.signalCyan)
             }
         }
 
@@ -531,7 +534,7 @@ private fun QuotaGaugesSection(
                     .padding(spacing.lg),
             ) {
                 Text(
-                    text = "No /usage quota buckets cached yet. Tap REFRESH /USAGE to query Antigravity CLI.",
+                    text = "No usage data cached yet. Tap Check quota to fetch your current Antigravity limits.",
                     style = type.bodyCompact,
                     color = colors.inkMuted,
                 )
@@ -584,7 +587,7 @@ private fun QuotaGroupCard(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.md),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -638,43 +641,42 @@ fun QuotaBucketFuelGauge(
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(spacing.xs),
                 ) {
                     Text(
                         text = bucket.name.ifBlank { bucket.id.ifBlank { "Quota" } },
-                        style = type.bodyCompact,
+                        style = type.labelUi,
                         color = colors.inkPrimary,
                     )
                     if (bucket.window.isNotBlank()) {
                         Box(
                             modifier = Modifier
-                                .clip(shapes.sm)
+                                .clip(shapes.pill)
                                 .background(colors.stratumRaised)
-                                .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm)
-                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
                         ) {
                             Text(
-                                text = bucket.window.uppercase(),
-                                style = type.monoMicro,
+                                text = bucket.window,
+                                style = type.labelSmallUi,
                                 color = colors.inkSecondary,
                             )
                         }
                     }
                 }
                 Text(
-                    text = countdownText,
-                    style = type.monoCode,
-                    color = colors.inkSecondary,
+                    text = "Resets in $countdownText",
+                    style = type.monoMicro,
+                    color = colors.inkMuted,
                 )
             }
             Text(
@@ -684,7 +686,7 @@ fun QuotaBucketFuelGauge(
             )
         }
 
-        // 10-segment discrete linear fuel bar (8.dp height, 2.dp segment corner, zero donuts)
+        // Clean 10-segment rounded linear gauge
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -695,13 +697,8 @@ fun QuotaBucketFuelGauge(
                     modifier = Modifier
                         .weight(1f)
                         .height(8.dp)
-                        .clip(shapes.xs)
-                        .background(if (isLit) tierColor else colors.stratumWell)
-                        .border(
-                            width = spacing.hairlineWidth,
-                            color = if (isLit) tierColor else colors.hairline,
-                            shape = shapes.xs,
-                        ),
+                        .clip(shapes.pill)
+                        .background(if (isLit) tierColor else colors.stratumRaised),
                 )
             }
         }
@@ -727,7 +724,7 @@ private fun ExternalRadarSection(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Row(
@@ -735,17 +732,24 @@ private fun ExternalRadarSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("EXTERNAL PRESENCE RADAR", style = type.labelTelemetry, color = colors.signalCyan)
-            Text(
-                text = "${activeSessions.size} ACTIVE · FLOCK VERIFIED",
-                style = type.monoMicro,
-                color = if (activeSessions.isNotEmpty()) colors.signalEmerald else colors.inkMuted,
-            )
+            Text("Active on host", style = type.titleBar, color = colors.inkPrimary)
+            Box(
+                modifier = Modifier
+                    .clip(shapes.pill)
+                    .background(if (activeSessions.isNotEmpty()) colors.signalEmeraldDim else colors.stratumRaised)
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+            ) {
+                Text(
+                    text = "${activeSessions.size} running",
+                    style = type.labelSmallUi,
+                    color = if (activeSessions.isNotEmpty()) colors.signalEmerald else colors.inkMuted,
+                )
+            }
         }
 
         if (activeSessions.isEmpty()) {
             Text(
-                text = "Zero active host Antigravity locks detected in presence/ via FLOCK.",
+                text = "No active Antigravity sessions detected on the host.",
                 style = type.bodyCompact,
                 color = colors.inkMuted,
             )
@@ -757,7 +761,6 @@ private fun ExternalRadarSection(
                         .defaultMinSize(minHeight = spacing.touchFloor)
                         .clip(shapes.sm)
                         .background(colors.stratumRaised)
-                        .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
                         .clickable { onOpenOrResumeSession(ext) }
                         .padding(horizontal = spacing.md, vertical = spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
@@ -766,20 +769,14 @@ private fun ExternalRadarSection(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = ext.title.ifBlank { ext.sessionId },
-                            style = type.titleBar,
+                            style = type.labelUi,
                             color = colors.inkPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = buildString {
-                                append(ext.cwd ?: "unknown cwd")
-                                if (ext.pid != null) {
-                                    append(" · pid ")
-                                    append(ext.pid)
-                                }
-                            },
-                            style = type.monoMicro,
+                            text = ext.cwd?.let { basenameOfPath(it) } ?: "Unknown folder",
+                            style = type.labelSmallUi,
                             color = colors.inkSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -788,18 +785,13 @@ private fun ExternalRadarSection(
                     Spacer(modifier = Modifier.width(spacing.sm))
                     Box(
                         modifier = Modifier
-                            .clip(shapes.sm)
+                            .clip(shapes.pill)
                             .background(if (ext.supervised) colors.signalEmeraldDim else colors.signalAmberDim)
-                            .border(
-                                spacing.hairlineWidth,
-                                if (ext.supervised) colors.signalEmerald else colors.signalAmber,
-                                shapes.sm,
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
                     ) {
                         Text(
-                            text = if (ext.supervised) "SUPERVISED" else "HOST EXTERNAL",
-                            style = type.labelTelemetry,
+                            text = if (ext.supervised) "Open" else "Resume",
+                            style = type.labelSmallUi,
                             color = if (ext.supervised) colors.signalEmerald else colors.signalAmber,
                         )
                     }
@@ -815,6 +807,8 @@ private fun RemoteControlDaemonPanel(
     nameDraft: String,
     sessionScoped: Boolean,
     isBusy: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     onNameDraftChange: (String) -> Unit,
     onSessionScopedChange: (Boolean) -> Unit,
     onStart: () -> Unit,
@@ -833,138 +827,157 @@ private fun RemoteControlDaemonPanel(
             .fillMaxWidth()
             .clip(shapes.md)
             .background(colors.stratumBase)
-            .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
-        verticalArrangement = Arrangement.spacedBy(spacing.sm),
+            .border(spacing.hairlineWidth, colors.hairline, shapes.md),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("REMOTE-CONTROL DAEMON", style = type.labelTelemetry, color = colors.inkSecondary)
-            Box(
-                modifier = Modifier
-                    .clip(shapes.sm)
-                    .background(if (active) colors.signalEmeraldDim else colors.stratumRaised)
-                    .border(
-                        spacing.hairlineWidth,
-                        if (active) colors.signalEmerald else colors.hairlineStrong,
-                        shapes.sm,
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            ) {
-                Text(
-                    text = if (active) "ACTIVE" else "INACTIVE",
-                    style = type.labelTelemetry,
-                    color = if (active) colors.signalEmerald else colors.inkMuted,
-                )
-            }
-        }
-
-        if (!remoteControl?.instanceName.isNullOrBlank()) {
-            Text(
-                text = "Instance: ${remoteControl.instanceName}",
-                style = type.monoCode,
-                color = colors.inkPrimary,
-            )
-        }
-        if (!remoteControl?.statusText.isNullOrBlank()) {
-            Text(
-                text = remoteControl.statusText,
-                style = type.monoMicro,
-                color = colors.inkSecondary,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        OutlinedTextField(
-            value = nameDraft,
-            onValueChange = onNameDraftChange,
-            singleLine = true,
-            textStyle = type.monoCode,
-            placeholder = {
-                Text("Optional --name instance label", style = type.bodyCompact, color = colors.inkMuted)
-            },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = colors.stratumWell,
-                unfocusedContainerColor = colors.stratumWell,
-                focusedBorderColor = colors.signalCyan,
-                unfocusedBorderColor = colors.hairline,
-                focusedTextColor = colors.inkPrimary,
-                unfocusedTextColor = colors.inkPrimary,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = spacing.touchFloor)
-                .clip(shapes.sm)
-                .clickable(role = Role.Checkbox) { onSessionScopedChange(!sessionScoped) }
-                .padding(horizontal = spacing.xs),
+                .defaultMinSize(minHeight = 56.dp)
+                .clickable(onClick = onToggleExpanded)
+                .padding(horizontal = spacing.lg, vertical = spacing.md),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Checkbox(
-                checked = sessionScoped,
-                onCheckedChange = null,
-                colors = CheckboxDefaults.colors(
-                    checkedColor = colors.signalCyan,
-                    checkmarkColor = colors.inkInverse,
-                    uncheckedColor = colors.inkSecondary,
-                ),
-            )
-            Spacer(modifier = Modifier.width(spacing.sm))
-            Text(
-                text = "Session-scoped (--session)",
-                style = type.bodyCompact,
-                color = colors.inkPrimary,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Remote-control daemon", style = type.labelUi, color = colors.inkPrimary)
+                Text(
+                    text = remoteControl?.instanceName?.let { "Instance: $it" }
+                        ?: if (active) "Running on host" else "Stopped",
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(shapes.pill)
+                        .background(if (active) colors.signalEmeraldDim else colors.stratumRaised)
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = if (active) "Active" else "Inactive",
+                        style = type.labelSmallUi,
+                        color = if (active) colors.signalEmerald else colors.inkMuted,
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = if (expanded) "Collapse daemon controls" else "Expand daemon controls",
+                    tint = colors.inkMuted,
+                )
+            }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-        ) {
-            Button(
-                onClick = onStart,
-                enabled = !isBusy && !active,
-                shape = shapes.sm,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = colors.signalEmerald,
-                    contentColor = colors.inkInverse,
-                    disabledContainerColor = colors.stratumRaised,
-                    disabledContentColor = colors.inkMuted,
-                ),
-                elevation = ButtonDefaults.buttonElevation(
-                    defaultElevation = spacing.elevationZero,
-                    pressedElevation = spacing.elevationZero,
-                ),
+        if (expanded) {
+            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+            Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .defaultMinSize(minHeight = spacing.touchFloor),
+                    .fillMaxWidth()
+                    .padding(spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
-                Text("START DAEMON", style = type.labelTelemetry)
-            }
-            OutlinedButton(
-                onClick = onStop,
-                enabled = !isBusy && active,
-                shape = shapes.sm,
-                border = BorderStroke(
-                    spacing.hairlineWidth,
-                    if (active) colors.signalCrimson else colors.hairline,
-                ),
-                modifier = Modifier
-                    .weight(1f)
-                    .defaultMinSize(minHeight = spacing.touchFloor),
-            ) {
-                Text(
-                    text = "STOP",
-                    style = type.labelTelemetry,
-                    color = if (active) colors.signalCrimson else colors.inkMuted,
+                if (!remoteControl?.statusText.isNullOrBlank()) {
+                    Text(
+                        text = remoteControl.statusText,
+                        style = type.monoMicro,
+                        color = colors.inkSecondary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                OutlinedTextField(
+                    value = nameDraft,
+                    onValueChange = onNameDraftChange,
+                    singleLine = true,
+                    textStyle = type.bodyProse,
+                    placeholder = {
+                        Text("Optional instance name", style = type.bodyCompact, color = colors.inkMuted)
+                    },
+                    shape = shapes.sm,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = colors.stratumWell,
+                        unfocusedContainerColor = colors.stratumWell,
+                        focusedBorderColor = colors.signalCyan,
+                        unfocusedBorderColor = colors.hairline,
+                        focusedTextColor = colors.inkPrimary,
+                        unfocusedTextColor = colors.inkPrimary,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
                 )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = spacing.touchFloor)
+                        .clip(shapes.sm)
+                        .clickable(role = Role.Checkbox) { onSessionScopedChange(!sessionScoped) }
+                        .padding(horizontal = spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = sessionScoped,
+                        onCheckedChange = null,
+                        colors = CheckboxDefaults.colors(
+                            checkedColor = colors.signalCyan,
+                            checkmarkColor = colors.inkInverse,
+                            uncheckedColor = colors.inkSecondary,
+                        ),
+                    )
+                    Spacer(modifier = Modifier.width(spacing.sm))
+                    Text(
+                        text = "Session-scoped (--session)",
+                        style = type.bodyCompact,
+                        color = colors.inkPrimary,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+                ) {
+                    Button(
+                        onClick = onStart,
+                        enabled = !isBusy && !active,
+                        shape = shapes.pill,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.signalEmerald,
+                            contentColor = colors.inkInverse,
+                            disabledContainerColor = colors.stratumRaised,
+                            disabledContentColor = colors.inkMuted,
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(
+                            defaultElevation = spacing.elevationZero,
+                            pressedElevation = spacing.elevationZero,
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = spacing.touchFloor),
+                    ) {
+                        Text("Start daemon", style = type.labelUi)
+                    }
+                    OutlinedButton(
+                        onClick = onStop,
+                        enabled = !isBusy && active,
+                        shape = shapes.pill,
+                        border = BorderStroke(
+                            spacing.hairlineWidth,
+                            if (active) colors.signalCrimson else colors.hairline,
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = spacing.touchFloor),
+                    ) {
+                        Text(
+                            text = "Stop",
+                            style = type.labelUi,
+                            color = if (active) colors.signalCrimson else colors.inkMuted,
+                        )
+                    }
+                }
             }
         }
     }
@@ -989,7 +1002,7 @@ private fun CliUpdaterPanel(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Row(
@@ -997,19 +1010,27 @@ private fun CliUpdaterPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("ANTIGRAVITY CLI UPDATER", style = type.labelTelemetry, color = colors.inkSecondary)
-            Text(
-                text = "v${updater?.agyVersion?.ifBlank { "unknown" } ?: "unknown"}",
-                style = type.monoCode,
-                color = colors.signalCyan,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Antigravity CLI", style = type.labelUi, color = colors.inkPrimary)
+                Text(
+                    text = updater?.message?.ifBlank { "Up to date" } ?: "Up to date",
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .clip(shapes.pill)
+                    .background(colors.signalCyanDim)
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    text = "v${updater?.agyVersion?.ifBlank { "unknown" } ?: "unknown"}",
+                    style = type.monoMicro,
+                    color = colors.signalCyan,
+                )
+            }
         }
-
-        Text(
-            text = "Status: ${updater?.message?.ifBlank { "Idle" } ?: "Idle"}",
-            style = type.bodyCompact,
-            color = colors.inkSecondary,
-        )
 
         if (lastUpdateResult != null) {
             Column(
@@ -1023,11 +1044,11 @@ private fun CliUpdaterPanel(
             ) {
                 Text(
                     text = if (lastUpdateResult.updated) {
-                        "UPDATED ${lastUpdateResult.versionBefore} -> ${lastUpdateResult.versionAfter}"
+                        "Updated ${lastUpdateResult.versionBefore} -> ${lastUpdateResult.versionAfter}"
                     } else {
-                        "NO CHANGE (${lastUpdateResult.versionAfter})"
+                        "Already current (${lastUpdateResult.versionAfter})"
                     },
-                    style = type.labelTelemetry,
+                    style = type.labelSmallUi,
                     color = colors.signalEmerald,
                 )
                 if (lastUpdateResult.output.isNotBlank()) {
@@ -1045,7 +1066,7 @@ private fun CliUpdaterPanel(
         OutlinedButton(
             onClick = onRequestUpdateConfirm,
             enabled = !isUpdating,
-            shape = shapes.sm,
+            shape = shapes.pill,
             border = BorderStroke(spacing.hairlineWidth, colors.signalAmber),
             colors = ButtonDefaults.outlinedButtonColors(
                 containerColor = colors.signalAmberDim,
@@ -1056,12 +1077,12 @@ private fun CliUpdaterPanel(
                 .defaultMinSize(minHeight = spacing.touchFloor),
         ) {
             Icon(
-                imageVector = Icons.Default.SystemUpdateAlt,
+                imageVector = Icons.Rounded.SystemUpdateAlt,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(spacing.xs))
-            Text("UPDATE ANTIGRAVITY CLI", style = type.labelTelemetry)
+            Text("Check & update CLI", style = type.labelUi)
         }
     }
 }
@@ -1085,12 +1106,12 @@ private fun ConfirmAgyUpdateSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
             verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
             Row(
@@ -1098,12 +1119,12 @@ private fun ConfirmAgyUpdateSheet(
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Warning,
+                    imageVector = Icons.Rounded.WarningAmber,
                     contentDescription = null,
                     tint = colors.signalAmber,
                 )
                 Text(
-                    text = "CONFIRM CLI UPDATE INTERLOCK",
+                    text = "Confirm CLI update",
                     style = type.headlineSection,
                     color = colors.inkPrimary,
                 )
@@ -1118,17 +1139,17 @@ private fun ConfirmAgyUpdateSheet(
                     .padding(spacing.md),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("HOST COMMAND", style = type.labelTelemetry, color = colors.signalAmber)
+                Text("Host command", style = type.labelSmallUi, color = colors.signalAmber)
                 Text("agy update", style = type.monoCode, color = colors.inkPrimary)
                 Text(
-                    text = "Current binary: v${currentVersion.ifBlank { "unknown" }} · ${updaterMessage.ifBlank { "ready" }}",
+                    text = "Current version: v${currentVersion.ifBlank { "unknown" }} · ${updaterMessage.ifBlank { "ready" }}",
                     style = type.monoMicro,
                     color = colors.inkSecondary,
                 )
             }
 
             Text(
-                text = "Runs `agy update` on the gateway host with a scrubbed environment (`ANTIGRAVITY_ENV_STRICT=1`) and explicit `{\"confirm\": true}` authorization.",
+                text = "Runs `agy update` on the gateway host in a scrubbed environment with explicit confirmation.",
                 style = type.bodyCompact,
                 color = colors.inkSecondary,
             )
@@ -1140,18 +1161,18 @@ private fun ConfirmAgyUpdateSheet(
                 OutlinedButton(
                     onClick = onDismiss,
                     enabled = !isUpdating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = spacing.touchFloor),
                 ) {
-                    Text("CANCEL", style = type.labelTelemetry, color = colors.inkSecondary)
+                    Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
                 }
                 Button(
                     onClick = onConfirmRun,
                     enabled = !isUpdating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.signalAmber,
                         contentColor = colors.inkInverse,
@@ -1172,9 +1193,10 @@ private fun ConfirmAgyUpdateSheet(
                         )
                         Spacer(modifier = Modifier.width(spacing.xs))
                     }
-                    Text("CONFIRM & RUN UPDATE", style = type.labelTelemetry)
+                    Text("Confirm & update", style = type.labelUi)
                 }
             }
+            Spacer(modifier = Modifier.height(spacing.md))
         }
     }
 }
@@ -1190,6 +1212,8 @@ private fun ObservatoryLogsPanel(
     lines: List<String>,
     totalMatched: Int,
     isLoading: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     onSelectSource: (LogSourceTab) -> Unit,
     onSelectCrashFile: (String) -> Unit,
     onSelectTail: (Int) -> Unit,
@@ -1208,66 +1232,79 @@ private fun ObservatoryLogsPanel(
             .fillMaxWidth()
             .clip(shapes.md)
             .background(colors.stratumBase)
-            .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
-        verticalArrangement = Arrangement.spacedBy(spacing.sm),
+            .border(spacing.hairlineWidth, colors.hairline, shapes.md),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = 56.dp)
+                .clickable(onClick = onToggleExpanded)
+                .padding(start = spacing.lg, end = spacing.xs, top = spacing.sm, bottom = spacing.sm),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("CRASH & LOG VIEWER · SECRET REDACTED", style = type.labelTelemetry, color = colors.signalViolet)
+                Text("Host logs & crashes", style = type.labelUi, color = colors.inkPrimary)
                 Text(
-                    text = "${activeFile ?: source.label} · $totalMatched matched lines",
-                    style = type.monoMicro,
+                    text = "${activeFile ?: source.label} · $totalMatched lines · secrets redacted",
+                    style = type.bodyCompact,
                     color = colors.inkSecondary,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                IconButton(
-                    onClick = onRefreshLogs,
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh logs",
-                        tint = colors.inkSecondary,
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = onExpandSheet,
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.OpenInFull,
-                        contentDescription = "Expand log sheet",
+                        imageVector = Icons.Rounded.OpenInFull,
+                        contentDescription = "Open full log viewer",
                         tint = colors.signalCyan,
+                    )
+                }
+                IconButton(
+                    onClick = onToggleExpanded,
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                ) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        contentDescription = if (expanded) "Collapse logs" else "Expand logs",
+                        tint = colors.inkMuted,
                     )
                 }
             }
         }
 
-        LogFilterToolbar(
-            source = source,
-            availableCrashFiles = availableCrashFiles,
-            selectedCrashFile = selectedCrashFile,
-            searchQuery = searchQuery,
-            tailLines = tailLines,
-            onSelectSource = onSelectSource,
-            onSelectCrashFile = onSelectCrashFile,
-            onSelectTail = onSelectTail,
-            onSearchQueryChange = onSearchQueryChange,
-        )
+        if (expanded) {
+            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(spacing.sm),
+            ) {
+                LogFilterToolbar(
+                    source = source,
+                    availableCrashFiles = availableCrashFiles,
+                    selectedCrashFile = selectedCrashFile,
+                    searchQuery = searchQuery,
+                    tailLines = tailLines,
+                    onSelectSource = onSelectSource,
+                    onSelectCrashFile = onSelectCrashFile,
+                    onSelectTail = onSelectTail,
+                    onSearchQueryChange = onSearchQueryChange,
+                    onRefreshLogs = onRefreshLogs,
+                )
 
-        RedactedLogViewport(
-            lines = lines,
-            isLoading = isLoading,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 160.dp, max = 320.dp),
-        )
+                RedactedLogViewport(
+                    lines = lines,
+                    isLoading = isLoading,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 160.dp, max = 320.dp),
+                )
+            }
+        }
     }
 }
 
@@ -1300,12 +1337,12 @@ private fun ExpandedLogViewerSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = spacing.lg, vertical = spacing.sm),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
             Row(
@@ -1314,10 +1351,10 @@ private fun ExpandedLogViewerSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("LOG & CRASH INSPECTOR", style = type.headlineSection, color = colors.inkPrimary)
+                    Text("Host logs & crashes", style = type.headlineSection, color = colors.inkPrimary)
                     Text(
-                        text = "${activeFile ?: source.label} · $totalMatched lines (secret-redacted)",
-                        style = type.monoMicro,
+                        text = "${activeFile ?: source.label} · $totalMatched lines (secrets redacted)",
+                        style = type.bodyCompact,
                         color = colors.inkSecondary,
                     )
                 }
@@ -1326,7 +1363,7 @@ private fun ExpandedLogViewerSheet(
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
+                        imageVector = Icons.Rounded.Refresh,
                         contentDescription = "Refresh logs",
                         tint = colors.signalCyan,
                     )
@@ -1343,6 +1380,7 @@ private fun ExpandedLogViewerSheet(
                 onSelectCrashFile = onSelectCrashFile,
                 onSelectTail = onSelectTail,
                 onSearchQueryChange = onSearchQueryChange,
+                onRefreshLogs = onRefreshLogs,
             )
 
             RedactedLogViewport(
@@ -1352,6 +1390,7 @@ private fun ExpandedLogViewerSheet(
                     .fillMaxWidth()
                     .height(420.dp),
             )
+            Spacer(modifier = Modifier.height(spacing.md))
         }
     }
 }
@@ -1367,6 +1406,7 @@ private fun LogFilterToolbar(
     onSelectCrashFile: (String) -> Unit,
     onSelectTail: (Int) -> Unit,
     onSearchQueryChange: (String) -> Unit,
+    onRefreshLogs: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = GravityWellTheme.colors
@@ -1387,22 +1427,25 @@ private fun LogFilterToolbar(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(shapes.sm)
-                    .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm),
+                    .clip(shapes.pill)
+                    .background(colors.stratumRaised)
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 LogSourceTab.entries.forEach { tab ->
                     val selected = tab == source
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .defaultMinSize(minHeight = spacing.touchFloor)
+                            .defaultMinSize(minHeight = 40.dp)
+                            .clip(shapes.pill)
                             .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
                             .clickable(role = Role.Tab) { onSelectSource(tab) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = tab.label,
-                            style = type.monoCode,
+                            style = type.labelSmallUi,
                             color = if (selected) colors.signalCyan else colors.inkSecondary,
                         )
                     }
@@ -1412,14 +1455,17 @@ private fun LogFilterToolbar(
             // Tail selector: 200 | 500 | 2000
             Row(
                 modifier = Modifier
-                    .clip(shapes.sm)
-                    .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm),
+                    .clip(shapes.pill)
+                    .background(colors.stratumRaised)
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 ObservatoryTelemetryMath.TAIL_OPTIONS.forEach { opt ->
                     val selected = opt == tailLines
                     Box(
                         modifier = Modifier
-                            .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
+                            .defaultMinSize(minWidth = 44.dp, minHeight = 40.dp)
+                            .clip(shapes.pill)
                             .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
                             .clickable { onSelectTail(opt) }
                             .padding(horizontal = 8.dp),
@@ -1446,16 +1492,16 @@ private fun LogFilterToolbar(
                     val selected = file == selectedCrashFile
                     Box(
                         modifier = Modifier
-                            .defaultMinSize(minHeight = spacing.touchFloor)
-                            .clip(shapes.sm)
+                            .defaultMinSize(minHeight = 36.dp)
+                            .clip(shapes.pill)
                             .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
                             .border(
                                 spacing.hairlineWidth,
                                 if (selected) colors.signalCyan else colors.hairline,
-                                shapes.sm,
+                                shapes.pill,
                             )
                             .clickable { onSelectCrashFile(file) }
-                            .padding(horizontal = spacing.md),
+                            .padding(horizontal = spacing.md, vertical = 6.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -1468,45 +1514,62 @@ private fun LogFilterToolbar(
             }
         }
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            singleLine = true,
-            textStyle = type.monoCode,
-            placeholder = {
-                Text("Filter redacted log lines...", style = type.bodyCompact, color = colors.inkMuted)
-            },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = null,
-                    tint = colors.inkMuted,
-                )
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(
-                        onClick = { onSearchQueryChange("") },
-                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Clear,
-                            contentDescription = "Clear log filter",
-                            tint = colors.inkMuted,
-                        )
-                    }
-                }
-            },
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = colors.stratumWell,
-                unfocusedContainerColor = colors.stratumWell,
-                focusedBorderColor = colors.signalCyan,
-                unfocusedBorderColor = colors.hairline,
-                focusedTextColor = colors.inkPrimary,
-                unfocusedTextColor = colors.inkPrimary,
-            ),
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                singleLine = true,
+                textStyle = type.monoCode,
+                placeholder = {
+                    Text("Filter log lines...", style = type.bodyCompact, color = colors.inkMuted)
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = colors.inkMuted,
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onSearchQueryChange("") },
+                            modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Clear,
+                                contentDescription = "Clear log filter",
+                                tint = colors.inkMuted,
+                            )
+                        }
+                    }
+                },
+                shape = shapes.pill,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = colors.stratumWell,
+                    unfocusedContainerColor = colors.stratumWell,
+                    focusedBorderColor = colors.signalCyan,
+                    unfocusedBorderColor = colors.hairline,
+                    focusedTextColor = colors.inkPrimary,
+                    unfocusedTextColor = colors.inkPrimary,
+                ),
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = onRefreshLogs,
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Refresh,
+                    contentDescription = "Refresh logs",
+                    tint = colors.inkSecondary,
+                )
+            }
+        }
     }
 }
 
@@ -1535,8 +1598,8 @@ private fun RedactedLogViewport(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = if (isLoading) "Loading redacted host logs..." else "No matching log lines.",
-                    style = type.monoCode,
+                    text = if (isLoading) "Loading redacted logs..." else "No matching log lines.",
+                    style = type.bodyCompact,
                     color = colors.inkMuted,
                 )
             }

@@ -8,10 +8,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import tempfile
 from typing import Any, Mapping
 
-GATEWAY_VERSION = "0.1.0"
+GATEWAY_VERSION = "1.0.0"
 SERVICE_NAME = "gravity-well-gateway"
 ACP_PROTOCOL_VERSION = 1
 
@@ -155,7 +156,7 @@ class GatewayConfig:
                 )
             )
         )
-        agy_bin = src.get("GRAVITY_WELL_AGY_BIN") or "/home/jason/.local/bin/agy"
+        agy_bin = src.get("GRAVITY_WELL_AGY_BIN") or shutil.which("agy") or str(home_dir / ".local" / "bin" / "agy")
         default_cwd = Path(
             os.path.realpath(
                 os.path.expanduser(src.get("GRAVITY_WELL_DEFAULT_CWD") or str(home_dir))

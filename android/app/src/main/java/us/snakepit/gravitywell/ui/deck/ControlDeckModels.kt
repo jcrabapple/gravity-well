@@ -17,9 +17,9 @@ import us.snakepit.gravitywell.ui.sessions.PermissionRuleDto
 
 enum class ControlDeckTab(val label: String) {
     MCP("MCP"),
-    PLUGINS("PLUGINS"),
-    AGENTS_AND_RULES("AGENTS & RULES"),
-    SYSTEM("SYSTEM"),
+    PLUGINS("Plugins"),
+    AGENTS_AND_RULES("Agents"),
+    SYSTEM("System"),
 }
 
 // ── Ecosystem Models DTOs ───────────────────────────────────────────────────

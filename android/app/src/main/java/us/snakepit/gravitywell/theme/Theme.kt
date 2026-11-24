@@ -30,7 +30,7 @@ object GravityWellTheme {
 }
 
 /**
- * Canonical dark-only Vernier Rig theme.
+ * Canonical modern dark theme for Gravity Well.
  * dynamicColor is strictly disabled (false) so system wallpaper colors never leak in.
  */
 @Composable

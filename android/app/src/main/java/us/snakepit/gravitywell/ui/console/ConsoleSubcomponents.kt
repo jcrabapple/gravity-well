@@ -1,6 +1,11 @@
 package us.snakepit.gravitywell.ui.console
 
 import android.graphics.BitmapFactory
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -12,19 +17,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -33,15 +36,25 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,8 +77,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -91,12 +107,16 @@ import us.snakepit.gravitywell.ui.sessions.compactTimestamp
 @Composable
 fun ConsoleTopBar(
     title: String,
-    titleSource: String,
-    status: String,
+    modelId: String,
+    thoughtLevel: String,
+    modeId: String,
+    usage: UsageDto,
+    streamIndicator: ConsoleStreamIndicator,
     isTurnActive: Boolean,
     showBackButton: Boolean,
     onBack: () -> Unit,
     onRenameTitle: () -> Unit,
+    onOpenConfigSheet: () -> Unit,
     onCancelTurn: () -> Unit,
     onOpenArtifacts: () -> Unit,
     onOpenWorkspaceRules: () -> Unit,
@@ -109,20 +129,32 @@ fun ConsoleTopBar(
 
     var menuExpanded by remember { mutableStateOf(false) }
 
-    val statusColor = when (status) {
-        "running", "starting" -> colors.signalCyan
-        "awaiting_approval", "awaiting_question" -> colors.signalAmber
-        "idle" -> colors.signalEmerald
-        "error" -> colors.signalCrimson
-        else -> colors.inkMuted
+    val contextPct = if (usage.size > 0L) {
+        ((usage.used.toDouble() / usage.size.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+    } else {
+        0
+    }
+
+    val thoughtLabel = when (thoughtLevel.lowercase()) {
+        "low" -> "Low"
+        "medium" -> "Med"
+        "high" -> "High"
+        "xhigh" -> "Max"
+        else -> thoughtLevel
+    }
+    val modeBadge = when (modeId) {
+        "auto" -> " · Auto"
+        "plan" -> " · Plan"
+        "accept-edits" -> " · Edits"
+        else -> ""
     }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 52.dp)
-            .background(colors.stratumBase)
-            .padding(horizontal = spacing.xs),
+            .defaultMinSize(minHeight = 60.dp)
+            .background(colors.chassisVoid)
+            .padding(horizontal = spacing.xs, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (showBackButton) {
@@ -131,23 +163,20 @@ fun ConsoleTopBar(
                 modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back to Sessions",
+                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Back to Chats",
                     tint = colors.inkPrimary,
                 )
             }
         } else {
-            Spacer(modifier = Modifier.width(spacing.sm))
+            Spacer(modifier = Modifier.width(spacing.md))
         }
 
-        Row(
+        Column(
             modifier = Modifier
                 .weight(1f)
-                .defaultMinSize(minHeight = spacing.touchFloor)
-                .clickable(onClick = onRenameTitle)
-                .padding(horizontal = spacing.xs),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                .padding(end = spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 text = title,
@@ -155,56 +184,84 @@ fun ConsoleTopBar(
                 color = colors.inkPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.clickable(onClick = onRenameTitle),
             )
-            if (titleSource == "gateway") {
-                Box(
-                    modifier = Modifier
-                        .clip(shapes.sm)
-                        .background(colors.signalVioletDim)
-                        .border(spacing.hairlineWidth, colors.signalViolet, shapes.sm)
-                        .padding(horizontal = 4.dp, vertical = 1.dp),
-                ) {
-                    Text("GATEWAY", style = type.monoMicro, color = colors.signalViolet)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .clip(shapes.pill)
+                    .clickable(onClick = onOpenConfigSheet)
+                    .padding(vertical = 2.dp),
+            ) {
+                Text(
+                    text = "${formatModelDisplayName(modelId)} · $thoughtLabel$modeBadge",
+                    style = type.labelSmallUi,
+                    color = colors.inkSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = Icons.Rounded.ExpandMore,
+                    contentDescription = "Change model or chat settings",
+                    tint = colors.inkMuted,
+                    modifier = Modifier.size(15.dp),
+                )
+                if (contextPct >= 75) {
+                    Box(
+                        modifier = Modifier
+                            .clip(shapes.pill)
+                            .background(colors.signalAmberDim)
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    ) {
+                        Text(
+                            text = "$contextPct%",
+                            style = type.monoMicro,
+                            color = colors.signalAmber,
+                        )
+                    }
+                }
+                if (streamIndicator != ConsoleStreamIndicator.LIVE) {
+                    val (label, tint) = when (streamIndicator) {
+                        ConsoleStreamIndicator.REPLAYING -> "Syncing" to colors.signalCyan
+                        ConsoleStreamIndicator.RECONNECTING -> "Reconnecting" to colors.signalAmber
+                        ConsoleStreamIndicator.RESYNCED -> "Resynced" to colors.signalViolet
+                        ConsoleStreamIndicator.OFFLINE -> "Offline" to colors.inkMuted
+                        ConsoleStreamIndicator.LIVE -> "" to colors.signalEmerald
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(shapes.pill)
+                            .background(colors.stratumRaised)
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    ) {
+                        Text(label, style = type.labelSmallUi, color = tint)
+                    }
                 }
             }
         }
 
-        Box(
-            modifier = Modifier
-                .clip(shapes.sm)
-                .background(colors.stratumRaised)
-                .border(spacing.hairlineWidth, statusColor, shapes.sm)
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-        ) {
-            Text(
-                text = status.uppercase(),
-                style = type.labelTelemetry,
-                color = statusColor,
-            )
-        }
-
         if (isTurnActive) {
-            Spacer(modifier = Modifier.width(spacing.xs))
             OutlinedButton(
                 onClick = onCancelTurn,
-                shape = shapes.sm,
+                shape = shapes.pill,
                 border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
-                contentPadding = PaddingValues(horizontal = spacing.sm, vertical = 0.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                 colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = colors.signalCrimsonDim,
                     contentColor = colors.signalCrimson,
                 ),
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Stop,
-                    contentDescription = "Cancel active turn",
+                    imageVector = Icons.Rounded.Stop,
+                    contentDescription = "Stop response",
                     modifier = Modifier.size(16.dp),
                 )
-                Spacer(modifier = Modifier.width(2.dp))
-                Text("STOP", style = type.labelTelemetry)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Stop", style = type.labelUi)
             }
+            Spacer(modifier = Modifier.width(4.dp))
         }
 
         Box {
@@ -213,8 +270,8 @@ fun ConsoleTopBar(
                 modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
             ) {
                 Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Console options",
+                    imageVector = Icons.Rounded.MoreVert,
+                    contentDescription = "Chat options",
                     tint = colors.inkSecondary,
                 )
             }
@@ -224,24 +281,40 @@ fun ConsoleTopBar(
                 containerColor = colors.stratumRaised,
                 tonalElevation = spacing.elevationZero,
                 shadowElevation = spacing.elevationZero,
-                border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
+                shape = shapes.md,
+                border = BorderStroke(spacing.hairlineWidth, colors.hairline),
             ) {
                 DropdownMenuItem(
-                    text = { Text("brain/ Artifacts", style = type.bodyCompact, color = colors.inkPrimary) },
+                    text = { Text("Chat settings", style = type.bodyCompact, color = colors.inkPrimary) },
+                    onClick = {
+                        menuExpanded = false
+                        onOpenConfigSheet()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Rename chat", style = type.bodyCompact, color = colors.inkPrimary) },
+                    onClick = {
+                        menuExpanded = false
+                        onRenameTitle()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Artifacts", style = type.bodyCompact, color = colors.inkPrimary) },
                     onClick = {
                         menuExpanded = false
                         onOpenArtifacts()
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("Workspace Rules", style = type.bodyCompact, color = colors.inkPrimary) },
+                    text = { Text("Project rules", style = type.bodyCompact, color = colors.inkPrimary) },
                     onClick = {
                         menuExpanded = false
                         onOpenWorkspaceRules()
                     },
                 )
+                HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
                 DropdownMenuItem(
-                    text = { Text("Close Session", style = type.bodyCompact, color = colors.signalCrimson) },
+                    text = { Text("Close chat", style = type.bodyCompact, color = colors.signalCrimson) },
                     onClick = {
                         menuExpanded = false
                         onCloseSession()
@@ -249,94 +322,6 @@ fun ConsoleTopBar(
                 )
             }
         }
-    }
-}
-
-@Composable
-fun TelemetrySubHeader(
-    modelId: String,
-    thoughtLevel: String,
-    modeId: String,
-    usage: UsageDto,
-    streamIndicator: ConsoleStreamIndicator,
-    lastCursor: Long,
-    onOpenConfigSheet: () -> Unit,
-) {
-    val colors = GravityWellTheme.colors
-    val type = GravityWellTheme.typography
-    val shapes = GravityWellTheme.shapes
-    val spacing = GravityWellTheme.spacing
-
-    val fillFraction = if (usage.size > 0L) {
-        (usage.used.toFloat() / usage.size.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-
-    val (streamText, streamColor) = when (streamIndicator) {
-        ConsoleStreamIndicator.LIVE -> "LIVE #$lastCursor" to colors.signalEmerald
-        ConsoleStreamIndicator.REPLAYING -> "REPLAYING" to colors.signalCyan
-        ConsoleStreamIndicator.RECONNECTING -> "RECONNECTING" to colors.signalAmber
-        ConsoleStreamIndicator.RESYNCED -> "RESYNCED" to colors.signalViolet
-        ConsoleStreamIndicator.OFFLINE -> "CACHED #$lastCursor" to colors.inkMuted
-    }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = 28.dp)
-            .background(colors.stratumRaised)
-            .clickable(onClick = onOpenConfigSheet)
-            .padding(horizontal = spacing.md, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            text = "[$modelId · $thoughtLevel · $modeId]",
-            style = type.monoMicro,
-            color = colors.signalCyan,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-
-        Spacer(modifier = Modifier.width(spacing.sm))
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(44.dp)
-                    .height(6.dp)
-                    .clip(shapes.none)
-                    .background(colors.stratumWell)
-                    .border(spacing.hairlineWidth, colors.hairlineStrong),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(fillFraction)
-                        .fillMaxHeight()
-                        .background(
-                            if (fillFraction > 0.85f) colors.signalAmber else colors.signalCyan,
-                        ),
-                )
-            }
-            Text(
-                text = "${formatTokenCompact(usage.used)} / ${formatTokenCompact(usage.size)}",
-                style = type.monoMicro,
-                color = colors.inkSecondary,
-            )
-        }
-
-        Spacer(modifier = Modifier.width(spacing.sm))
-
-        Text(
-            text = streamText,
-            style = type.monoMicro,
-            color = streamColor,
-        )
     }
 }
 
@@ -350,20 +335,19 @@ fun SwarmProgressStrip(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
-    val noun = if (workers.size == 1) "WORKER" else "WORKERS"
+    val noun = if (workers.size == 1) "agent" else "agents"
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 36.dp)
             .background(colors.stratumBase)
-            .padding(horizontal = spacing.md, vertical = 4.dp),
+            .padding(horizontal = spacing.lg, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Text(
-            text = "SWARM · ${workers.size} $noun",
-            style = type.labelTelemetry,
+            text = "${workers.size} $noun",
+            style = type.labelSmallUi,
             color = colors.signalCyan,
         )
         LazyRow(
@@ -378,98 +362,102 @@ fun SwarmProgressStrip(
                 }
                 Row(
                     modifier = Modifier
-                        .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
-                        .clip(shapes.sm)
+                        .defaultMinSize(minHeight = 36.dp)
+                        .clip(shapes.pill)
                         .background(colors.stratumRaised)
-                        .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
+                        .border(spacing.hairlineWidth, colors.hairline, shapes.pill)
                         .clickable { onSelectWorker(w) }
-                        .padding(horizontal = spacing.sm, vertical = spacing.xs),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(w.label, style = type.monoMicro, color = colors.inkPrimary)
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
                             .background(dotColor),
                     )
+                    Text(w.label, style = type.labelSmallUi, color = colors.inkPrimary)
                 }
             }
         }
     }
 }
 
-// ── Turn Stream Strata (Full-Bleed, Zero Chat Bubbles) ──────────────────────
+// ── Chat Messages, Thinking Pills & Tool Activity Cards ────────────────────
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun UserTurnStratum(item: LedgerItem.UserTurn) {
     val colors = GravityWellTheme.colors
     val type = GravityWellTheme.typography
+    val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .background(colors.stratumUser),
+            .padding(start = 52.dp, end = spacing.lg),
+        horizontalArrangement = Arrangement.End,
     ) {
-        Box(
-            modifier = Modifier
-                .width(spacing.statusRailWidth)
-                .fillMaxHeight()
-                .background(colors.signalAmber),
-        )
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = spacing.proseHorizontalMargin, vertical = spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.xs),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 520.dp)
+                    .clip(shapes.userBubble)
+                    .background(colors.stratumUser)
+                    .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.userBubble)
+                    .padding(horizontal = 15.dp, vertical = 11.dp),
+                verticalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
-                Text("USER", style = type.labelTelemetry, color = colors.signalAmber)
-                Text(compactTimestamp(item.ts), style = type.monoMicro, color = colors.inkMuted)
-            }
-            SelectionContainer {
-                Text(
-                    text = item.text,
-                    style = type.bodyProse,
-                    color = colors.inkPrimary,
-                )
-            }
-            if (item.attachmentLabels.isNotEmpty()) {
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                    verticalArrangement = Arrangement.spacedBy(spacing.xs),
-                ) {
-                    item.attachmentLabels.forEach { label ->
-                        Row(
-                            modifier = Modifier
-                                .background(colors.stratumRaised, CircleShape)
-                                .border(spacing.hairlineWidth, colors.hairline, CircleShape)
-                                .padding(horizontal = spacing.sm, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.AttachFile,
-                                contentDescription = null,
-                                tint = colors.inkSecondary,
-                                modifier = Modifier.size(12.dp),
-                            )
-                            Text(
-                                text = label,
-                                style = type.monoMicro,
-                                color = colors.inkSecondary,
-                            )
+                SelectionContainer {
+                    Text(
+                        text = item.text,
+                        style = type.bodyProse,
+                        color = colors.inkPrimary,
+                    )
+                }
+                if (item.attachmentLabels.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                        verticalArrangement = Arrangement.spacedBy(spacing.xs),
+                    ) {
+                        item.attachmentLabels.forEach { label ->
+                            Row(
+                                modifier = Modifier
+                                    .clip(shapes.pill)
+                                    .background(colors.stratumBase)
+                                    .border(spacing.hairlineWidth, colors.hairline, shapes.pill)
+                                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.AttachFile,
+                                    contentDescription = null,
+                                    tint = colors.signalCyan,
+                                    modifier = Modifier.size(13.dp),
+                                )
+                                Text(
+                                    text = label,
+                                    style = type.labelSmallUi,
+                                    color = colors.inkSecondary,
+                                )
+                            }
                         }
                     }
                 }
+            }
+            if (item.ts.isNotBlank()) {
+                Text(
+                    text = compactTimestamp(item.ts),
+                    style = type.monoMicro,
+                    color = colors.inkMuted,
+                    modifier = Modifier.padding(end = 4.dp),
+                )
             }
         }
     }
@@ -478,26 +466,43 @@ fun UserTurnStratum(item: LedgerItem.UserTurn) {
 @Composable
 fun AgentProseStratum(item: LedgerItem.AgentProse) {
     val colors = GravityWellTheme.colors
+    val type = GravityWellTheme.typography
     val spacing = GravityWellTheme.spacing
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .background(colors.chassisVoid),
+            .padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(spacing.xs),
     ) {
-        Box(
-            modifier = Modifier
-                .width(spacing.statusRailWidth)
-                .fillMaxHeight()
-                .background(if (item.isStreaming) colors.signalCyan else colors.hairline),
-        )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = spacing.md),
-        ) {
-            MarkdownStratumContent(markdown = item.text)
+        MarkdownStratumContent(markdown = item.text)
+
+        if (item.isStreaming) {
+            val transition = rememberInfiniteTransition(label = "stream_pulse")
+            val dotAlpha by transition.animateFloat(
+                initialValue = 1f,
+                targetValue = 0.25f,
+                animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
+                label = "stream_dot_alpha",
+            )
+            Row(
+                modifier = Modifier.padding(horizontal = spacing.proseHorizontalMargin),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .alpha(dotAlpha)
+                        .clip(CircleShape)
+                        .background(colors.signalCyan),
+                )
+                Text(
+                    text = "Responding...",
+                    style = type.labelSmallUi,
+                    color = colors.inkMuted,
+                )
+            }
         }
     }
 }
@@ -510,75 +515,75 @@ fun ThoughtStratum(
 ) {
     val colors = GravityWellTheme.colors
     val type = GravityWellTheme.typography
+    val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .background(colors.stratumWell)
-            .border(spacing.hairlineWidth, colors.hairline),
+            .padding(horizontal = spacing.proseHorizontalMargin)
+            .clip(shapes.md)
+            .background(colors.stratumBase)
+            .border(spacing.hairlineWidth, colors.hairline, shapes.md),
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .width(2.dp)
-                .fillMaxHeight()
-                .background(colors.signalViolet),
-        )
-        Column(modifier = Modifier.weight(1f)) {
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = spacing.touchFloor)
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = spacing.touchFloor)
-                    .clickable(onClick = onToggle)
-                    .padding(horizontal = spacing.md, vertical = spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+                modifier = Modifier.weight(1f),
             ) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = colors.signalViolet,
+                    modifier = Modifier.size(16.dp),
+                )
                 Text(
                     text = if (item.isStreaming) {
-                        "THOUGHT · streaming..."
+                        "Thinking..."
                     } else {
-                        "THOUGHT · ${item.lineCount} lines"
+                        "Thought process · ${item.lineCount} lines"
                     },
-                    style = type.labelTelemetry,
+                    style = type.labelUi,
                     color = colors.signalViolet,
                 )
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (expanded) "Collapse thought" else "Expand thought",
-                    tint = colors.inkSecondary,
-                )
             }
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Collapse thought" else "Expand thought",
+                tint = colors.inkMuted,
+                modifier = Modifier.size(20.dp),
+            )
+        }
 
-            if (expanded) {
-                SelectionContainer {
-                    Text(
-                        text = item.text,
-                        style = type.monoCode,
-                        color = colors.inkSecondary,
-                        modifier = Modifier.padding(
-                            start = spacing.md,
-                            end = spacing.md,
-                            bottom = spacing.md,
-                        ),
-                    )
-                }
-            } else if (item.isStreaming && item.text.isNotBlank()) {
-                val tailPreview = item.text.trimEnd().lines().takeLast(2).joinToString("\n")
+        if (expanded) {
+            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+            SelectionContainer {
                 Text(
-                    text = tailPreview,
+                    text = item.text,
                     style = type.monoCode,
-                    color = colors.inkMuted,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(
-                        start = spacing.md,
-                        end = spacing.md,
-                        bottom = spacing.sm,
-                    ),
+                    color = colors.inkSecondary,
+                    modifier = Modifier.padding(14.dp),
                 )
             }
+        } else if (item.isStreaming && item.text.isNotBlank()) {
+            val tailPreview = item.text.trimEnd().lines().takeLast(2).joinToString("\n")
+            Text(
+                text = tailPreview,
+                style = type.bodyCompact,
+                color = colors.inkMuted,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+            )
         }
     }
 }
@@ -596,69 +601,105 @@ fun ToolGutterStratum(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
-    val statusDotColor = when (item.status.lowercase()) {
-        "pending", "in_progress", "running" -> colors.signalCyan
-        "error", "failed", "rejected", "cancelled" -> colors.signalCrimson
-        else -> colors.signalEmerald
-    }
+    val lowerStatus = item.status.lowercase()
+    val isRunning = lowerStatus == "pending" || lowerStatus == "in_progress" || lowerStatus == "running"
+    val isError = lowerStatus == "error" || lowerStatus == "failed" || lowerStatus == "rejected" || lowerStatus == "cancelled"
+
+    val (kindIcon, kindLabel) = toolKindPresentation(item.normalizedKindBadge)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = spacing.proseHorizontalMargin)
+            .clip(shapes.md)
             .background(colors.stratumBase)
-            .border(spacing.hairlineWidth, colors.hairline),
+            .border(spacing.hairlineWidth, colors.hairline, shapes.md),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = spacing.touchFloor)
                 .clickable(onClick = onToggleExpanded)
-                .padding(horizontal = spacing.md, vertical = spacing.xs),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
             Box(
                 modifier = Modifier
-                    .clip(shapes.sm)
-                    .background(colors.stratumRaised)
-                    .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm)
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(colors.stratumRaised),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = item.normalizedKindBadge,
-                    style = type.monoMicro,
-                    color = colors.inkPrimary,
+                Icon(
+                    imageVector = kindIcon,
+                    contentDescription = kindLabel,
+                    tint = colors.signalCyan,
+                    modifier = Modifier.size(15.dp),
                 )
             }
 
-            Text(
-                text = item.title,
-                style = type.monoCode,
-                color = colors.inkPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    style = type.bodyCompact,
+                    color = colors.inkPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = kindLabel,
+                    style = type.labelSmallUi,
+                    color = colors.inkMuted,
+                )
+            }
 
             if (item.parsedDiff != null) {
-                Text(
-                    text = "+${item.parsedDiff.addedCount} -${item.parsedDiff.removedCount}",
-                    style = type.monoMicro,
-                    color = colors.inkSecondary,
+                Row(
+                    modifier = Modifier
+                        .clip(shapes.pill)
+                        .background(colors.stratumRaised)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = "+${item.parsedDiff.addedCount}",
+                        style = type.monoMicro,
+                        color = colors.diffAddInk,
+                    )
+                    Text(
+                        text = "-${item.parsedDiff.removedCount}",
+                        style = type.monoMicro,
+                        color = colors.diffDelInk,
+                    )
+                }
+            }
+
+            when {
+                isRunning -> CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.signalCyan,
+                )
+                isError -> Icon(
+                    imageVector = Icons.Rounded.ErrorOutline,
+                    contentDescription = "Failed",
+                    tint = colors.signalCrimson,
+                    modifier = Modifier.size(16.dp),
+                )
+                else -> Icon(
+                    imageVector = Icons.Rounded.CheckCircle,
+                    contentDescription = "Completed",
+                    tint = colors.signalEmerald,
+                    modifier = Modifier.size(16.dp),
                 )
             }
 
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(statusDotColor),
-            )
-
             Icon(
-                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = if (expanded) "Collapse tool gutter" else "Expand tool gutter",
-                tint = colors.inkSecondary,
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = if (expanded) "Collapse tool details" else "Expand tool details",
+                tint = colors.inkMuted,
+                modifier = Modifier.size(20.dp),
             )
         }
 
@@ -669,17 +710,19 @@ fun ToolGutterStratum(
                     .fillMaxWidth()
                     .background(colors.stratumWell)
                     .padding(spacing.md),
-                verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                verticalArrangement = Arrangement.spacedBy(spacing.md),
             ) {
                 if (item.rawInputSummary.isNotBlank()) {
-                    Text("INPUT", style = type.monoMicro, color = colors.inkMuted)
-                    SelectionContainer {
-                        Text(
-                            text = item.rawInputSummary,
-                            style = type.monoCode,
-                            color = colors.inkPrimary,
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Input", style = type.labelSmallUi, color = colors.inkMuted)
+                        SelectionContainer {
+                            Text(
+                                text = item.rawInputSummary,
+                                style = type.monoCode,
+                                color = colors.inkPrimary,
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            )
+                        }
                     }
                 }
 
@@ -692,19 +735,29 @@ fun ToolGutterStratum(
                 }
 
                 if (item.rawOutputSummary.isNotBlank()) {
-                    Text("OUTPUT", style = type.monoMicro, color = colors.inkMuted)
-                    SelectionContainer {
-                        Text(
-                            text = item.rawOutputSummary,
-                            style = type.monoCode,
-                            color = colors.inkSecondary,
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Output", style = type.labelSmallUi, color = colors.inkMuted)
+                        SelectionContainer {
+                            Text(
+                                text = item.rawOutputSummary,
+                                style = type.monoCode,
+                                color = colors.inkSecondary,
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private fun toolKindPresentation(badge: String): Pair<ImageVector, String> = when (badge) {
+    "EXECUTE" -> Icons.Rounded.Terminal to "Run command"
+    "EDIT" -> Icons.Rounded.Edit to "Edit file"
+    "READ" -> Icons.Rounded.Description to "Read file"
+    "SEARCH" -> Icons.Rounded.Search to "Search"
+    else -> Icons.Rounded.Build to badge.lowercase().replaceFirstChar { it.titlecase() }
 }
 
 @Composable
@@ -729,12 +782,12 @@ fun DiffPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(colors.stratumBase)
-                .padding(horizontal = spacing.sm, vertical = 2.dp),
+                .padding(horizontal = spacing.md, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = diff.filePath ?: "DIFF",
+                text = diff.filePath ?: "Diff",
                 style = type.monoMicro,
                 color = colors.inkSecondary,
                 maxLines = 1,
@@ -744,22 +797,25 @@ fun DiffPanel(
 
             Row(
                 modifier = Modifier
-                    .clip(shapes.sm)
-                    .border(spacing.hairlineWidth, colors.hairline, shapes.sm),
+                    .clip(shapes.pill)
+                    .background(colors.stratumRaised)
+                    .padding(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 DiffDisplayMode.entries.forEach { m ->
                     val selected = m == mode
                     Box(
                         modifier = Modifier
-                            .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
+                            .defaultMinSize(minWidth = spacing.touchFloor, minHeight = 36.dp)
+                            .clip(shapes.pill)
                             .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
                             .clickable { onSelectMode(m) }
                             .padding(horizontal = spacing.sm),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = m.name,
-                            style = type.monoMicro,
+                            text = if (m == DiffDisplayMode.UNIFIED) "Unified" else "Word",
+                            style = type.labelSmallUi,
                             color = if (selected) colors.signalCyan else colors.inkMuted,
                         )
                     }
@@ -799,7 +855,7 @@ fun DiffPanel(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(rowBg)
-                            .padding(horizontal = spacing.sm, vertical = 1.dp),
+                            .padding(horizontal = spacing.sm, vertical = 2.dp),
                         verticalAlignment = Alignment.Top,
                     ) {
                         if (line.kind != DiffLineKind.HUNK_HEADER) {
@@ -857,25 +913,34 @@ fun DiffPanel(
 fun SystemNoticeStratum(item: LedgerItem.SystemNotice) {
     val colors = GravityWellTheme.colors
     val type = GravityWellTheme.typography
+    val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
     val accent = if (item.isError) colors.signalCrimson else colors.signalViolet
     val bg = if (item.isError) colors.signalCrimsonDim else colors.stratumBase
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(bg)
-            .padding(horizontal = spacing.proseHorizontalMargin, vertical = spacing.xs),
-        horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = spacing.xl),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(item.label, style = type.labelTelemetry, color = accent)
-        Text(item.message, style = type.monoMicro, color = colors.inkPrimary)
+        Row(
+            modifier = Modifier
+                .clip(shapes.pill)
+                .background(bg)
+                .border(spacing.hairlineWidth, if (item.isError) colors.signalCrimson else colors.hairline, shapes.pill)
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(item.label, style = type.labelSmallUi, color = accent)
+            Text(item.message, style = type.bodyCompact, color = colors.inkPrimary)
+        }
     }
 }
 
-// ── Docked Permission & Question Interlock Bars ─────────────────────────────
+// ── Docked Permission & Question Cards ─────────────────────────────────────
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -900,112 +965,124 @@ fun DockedPermissionGateBar(
     val allowAlwaysOpt = permission.options.firstOrNull { it.kind == "allow_always" }
     val rejectOpt = permission.options.firstOrNull { it.kind == "reject_once" || it.kind == "reject_always" }
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            .background(colors.signalAmberDim)
-            .border(2.dp, colors.signalAmber),
+            .padding(horizontal = spacing.md, vertical = spacing.xs)
+            .clip(shapes.md)
+            .background(colors.stratumBase)
+            .border(spacing.hairlineWidth, colors.signalAmber, shapes.md)
+            .padding(spacing.md),
+        verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "PERMISSION GATE · ${toolKind.uppercase()}",
-                    style = type.labelTelemetry,
-                    color = colors.signalAmber,
-                )
-                TextButton(
-                    onClick = { expandedPreview = !expandedPreview },
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                ) {
-                    Text(
-                        text = if (expandedPreview) "LESS" else "FULL",
-                        style = type.monoMicro,
-                        color = colors.inkSecondary,
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(shapes.sm)
-                    .background(colors.stratumWell)
-                    .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-                    .padding(spacing.sm),
-            ) {
-                Text(
-                    text = previewText.ifBlank { "Tool execution requires explicit approval." },
-                    style = type.monoCode,
-                    color = colors.inkPrimary,
-                    maxLines = if (expandedPreview) Int.MAX_VALUE else 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
-                verticalArrangement = Arrangement.spacedBy(spacing.xs),
             ) {
-                Button(
-                    onClick = { onResolve("allow_once", allowOnceOpt?.optionId) },
-                    shape = shapes.sm,
-                    elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.signalAmber,
-                        contentColor = colors.inkInverse,
-                    ),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                Icon(
+                    imageVector = Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = colors.signalAmber,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "Approval needed",
+                    style = type.titleBar,
+                    color = colors.inkPrimary,
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(shapes.pill)
+                        .background(colors.signalAmberDim)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                 ) {
                     Text(
-                        text = allowOnceOpt?.name?.ifBlank { "Allow Once" } ?: "Allow Once",
-                        style = type.labelTelemetry,
+                        text = toolKind.replaceFirstChar { it.titlecase() },
+                        style = type.labelSmallUi,
+                        color = colors.signalAmber,
                     )
                 }
+            }
+            TextButton(
+                onClick = { expandedPreview = !expandedPreview },
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
+            ) {
+                Text(
+                    text = if (expandedPreview) "Less" else "Details",
+                    style = type.labelSmallUi,
+                    color = colors.inkSecondary,
+                )
+            }
+        }
 
-                if (allowAlwaysOpt != null || permission.options.isEmpty()) {
-                    OutlinedButton(
-                        onClick = { onResolve("allow_rule", allowAlwaysOpt?.optionId) },
-                        shape = shapes.sm,
-                        border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = colors.stratumBase,
-                            contentColor = colors.signalCyan,
-                        ),
-                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                    ) {
-                        Column(horizontalAlignment = Alignment.Start) {
-                            Text("Allow Workspace Rule", style = type.labelTelemetry)
-                            Text(
-                                text = "Scoped to cwd · revocable in Deck",
-                                style = type.monoMicro,
-                                color = colors.inkSecondary,
-                            )
-                        }
-                    }
-                }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shapes.sm)
+                .background(colors.stratumWell)
+                .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
+                .padding(spacing.md),
+        ) {
+            Text(
+                text = previewText.ifBlank { "Antigravity wants to run a tool that requires your approval." },
+                style = type.monoCode,
+                color = colors.inkPrimary,
+                maxLines = if (expandedPreview) Int.MAX_VALUE else 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
 
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.xs),
+        ) {
+            Button(
+                onClick = { onResolve("allow_once", allowOnceOpt?.optionId) },
+                shape = shapes.pill,
+                elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.signalAmber,
+                    contentColor = colors.inkInverse,
+                ),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+            ) {
+                Text(
+                    text = allowOnceOpt?.name?.ifBlank { "Allow once" } ?: "Allow once",
+                    style = type.labelUi,
+                )
+            }
+
+            if (allowAlwaysOpt != null || permission.options.isEmpty()) {
                 OutlinedButton(
-                    onClick = { onResolve("deny", rejectOpt?.optionId) },
-                    shape = shapes.sm,
-                    border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
+                    onClick = { onResolve("allow_rule", allowAlwaysOpt?.optionId) },
+                    shape = shapes.pill,
+                    border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = colors.signalCrimsonDim,
-                        contentColor = colors.signalCrimson,
+                        containerColor = colors.signalCyanDim,
+                        contentColor = colors.signalCyan,
                     ),
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
-                    Text("Deny", style = type.labelTelemetry)
+                    Text("Always allow in project", style = type.labelUi)
                 }
+            }
+
+            OutlinedButton(
+                onClick = { onResolve("deny", rejectOpt?.optionId) },
+                shape = shapes.pill,
+                border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = colors.signalCrimsonDim,
+                    contentColor = colors.signalCrimson,
+                ),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+            ) {
+                Text("Deny", style = type.labelUi)
             }
         }
     }
@@ -1031,153 +1108,152 @@ fun DockedQuestionBrokerBar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = spacing.md, vertical = spacing.xs)
+            .clip(shapes.md)
             .background(colors.stratumBase)
-            .border(spacing.hairlineWidth, colors.signalCyan),
+            .border(spacing.hairlineWidth, colors.signalCyan, shapes.md)
+            .padding(spacing.md),
+        verticalArrangement = Arrangement.spacedBy(spacing.md),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(colors.signalCyanDim)
-                .padding(horizontal = spacing.md, vertical = spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
-            Text("AGENT QUESTION", style = type.labelTelemetry, color = colors.signalCyan)
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.HelpOutline,
+                contentDescription = null,
+                tint = colors.signalCyan,
+                modifier = Modifier.size(18.dp),
+            )
+            Text("Question from Antigravity", style = type.titleBar, color = colors.inkPrimary)
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
-        ) {
-            if (question.message.isNotBlank()) {
-                Text(question.message, style = type.bodyProse, color = colors.inkPrimary)
-            }
+        if (question.message.isNotBlank()) {
+            Text(question.message, style = type.bodyProse, color = colors.inkPrimary)
+        }
 
-            fields.forEach { field ->
-                Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
-                    Text(
-                        text = buildString {
-                            append(field.title)
-                            if (field.required) append(" *")
-                        },
-                        style = type.labelTelemetry,
-                        color = colors.inkSecondary,
-                    )
-                    if (!field.description.isNullOrBlank()) {
-                        Text(field.description.orEmpty(), style = type.monoMicro, color = colors.inkMuted)
-                    }
+        fields.forEach { field ->
+            Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                Text(
+                    text = buildString {
+                        append(field.title)
+                        if (field.required) append(" *")
+                    },
+                    style = type.labelUi,
+                    color = colors.inkSecondary,
+                )
+                if (!field.description.isNullOrBlank()) {
+                    Text(field.description.orEmpty(), style = type.bodyCompact, color = colors.inkMuted)
+                }
 
-                    when (field) {
-                        is QuestionFieldSpec.EnumSelect -> {
-                            val selectedVal = draftAnswers[field.key]
-                            field.options.forEach { (rawVal, displayLabel) ->
-                                val active = selectedVal == rawVal
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .defaultMinSize(minHeight = spacing.touchFloor)
-                                        .clip(shapes.sm)
-                                        .background(if (active) colors.signalCyanDim else colors.stratumWell)
-                                        .border(
-                                            spacing.hairlineWidth,
-                                            if (active) colors.signalCyan else colors.hairline,
-                                            shapes.sm,
-                                        )
-                                        .clickable { onUpdateAnswer(field.key, rawVal) }
-                                        .padding(horizontal = spacing.md),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = displayLabel,
-                                        style = type.bodyCompact,
-                                        color = if (active) colors.signalCyan else colors.inkPrimary,
-                                    )
-                                }
-                            }
-                        }
-
-                        is QuestionFieldSpec.TextField -> {
-                            OutlinedTextField(
-                                value = draftAnswers[field.key].orEmpty(),
-                                onValueChange = { onUpdateAnswer(field.key, it) },
-                                singleLine = true,
-                                textStyle = type.monoCode,
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = if (field.numericOnly) KeyboardType.Number else KeyboardType.Text,
-                                ),
-                                shape = shapes.sm,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = colors.stratumWell,
-                                    unfocusedContainerColor = colors.stratumWell,
-                                    focusedBorderColor = colors.signalCyan,
-                                    unfocusedBorderColor = colors.hairline,
-                                    focusedTextColor = colors.inkPrimary,
-                                    unfocusedTextColor = colors.inkPrimary,
-                                ),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-
-                        is QuestionFieldSpec.BooleanField -> {
-                            val checked = draftAnswers[field.key]?.toBooleanStrictOrNull() ?: field.defaultValue
+                when (field) {
+                    is QuestionFieldSpec.EnumSelect -> {
+                        val selectedVal = draftAnswers[field.key]
+                        field.options.forEach { (rawVal, displayLabel) ->
+                            val active = selectedVal == rawVal
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .defaultMinSize(minHeight = spacing.touchFloor)
                                     .clip(shapes.sm)
-                                    .background(colors.stratumWell)
-                                    .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
+                                    .background(if (active) colors.signalCyanDim else colors.stratumRaised)
+                                    .border(
+                                        spacing.hairlineWidth,
+                                        if (active) colors.signalCyan else colors.hairline,
+                                        shapes.sm,
+                                    )
+                                    .clickable { onUpdateAnswer(field.key, rawVal) }
                                     .padding(horizontal = spacing.md),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                Text(field.key, style = type.monoCode, color = colors.inkPrimary)
-                                Switch(
-                                    checked = checked,
-                                    onCheckedChange = { onUpdateAnswer(field.key, it.toString()) },
+                                Text(
+                                    text = displayLabel,
+                                    style = type.bodyCompact,
+                                    color = if (active) colors.signalCyan else colors.inkPrimary,
                                 )
                             }
                         }
                     }
+
+                    is QuestionFieldSpec.TextField -> {
+                        OutlinedTextField(
+                            value = draftAnswers[field.key].orEmpty(),
+                            onValueChange = { onUpdateAnswer(field.key, it) },
+                            singleLine = true,
+                            textStyle = type.bodyProse,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = if (field.numericOnly) KeyboardType.Number else KeyboardType.Text,
+                            ),
+                            shape = shapes.sm,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = colors.stratumWell,
+                                unfocusedContainerColor = colors.stratumWell,
+                                focusedBorderColor = colors.signalCyan,
+                                unfocusedBorderColor = colors.hairline,
+                                focusedTextColor = colors.inkPrimary,
+                                unfocusedTextColor = colors.inkPrimary,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    is QuestionFieldSpec.BooleanField -> {
+                        val checked = draftAnswers[field.key]?.toBooleanStrictOrNull() ?: field.defaultValue
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = spacing.touchFloor)
+                                .clip(shapes.sm)
+                                .background(colors.stratumRaised)
+                                .padding(horizontal = spacing.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(field.title, style = type.bodyCompact, color = colors.inkPrimary)
+                            Switch(
+                                checked = checked,
+                                onCheckedChange = { onUpdateAnswer(field.key, it.toString()) },
+                            )
+                        }
+                    }
                 }
             }
+        }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(spacing.sm),
+        ) {
+            Button(
+                onClick = { onResolve("accept") },
+                enabled = canSubmit,
+                shape = shapes.pill,
+                elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.signalCyan,
+                    contentColor = colors.inkInverse,
+                    disabledContainerColor = colors.stratumRaised,
+                    disabledContentColor = colors.inkMuted,
+                ),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
             ) {
-                Button(
-                    onClick = { onResolve("accept") },
-                    enabled = canSubmit,
-                    shape = shapes.sm,
-                    elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = colors.signalCyan,
-                        contentColor = colors.inkInverse,
-                        disabledContainerColor = colors.stratumRaised,
-                        disabledContentColor = colors.inkMuted,
-                    ),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                ) {
-                    Text("Submit", style = type.labelTelemetry)
-                }
+                Text("Submit", style = type.labelUi)
+            }
 
-                OutlinedButton(
-                    onClick = { onResolve("decline") },
-                    shape = shapes.sm,
-                    border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                ) {
-                    Text("Decline", style = type.labelTelemetry, color = colors.inkSecondary)
-                }
+            OutlinedButton(
+                onClick = { onResolve("decline") },
+                shape = shapes.pill,
+                border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+            ) {
+                Text("Decline", style = type.labelUi, color = colors.inkSecondary)
+            }
 
-                TextButton(
-                    onClick = { onResolve("cancel") },
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                ) {
-                    Text("Cancel", style = type.labelTelemetry, color = colors.signalCrimson)
-                }
+            TextButton(
+                onClick = { onResolve("cancel") },
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+            ) {
+                Text("Cancel", style = type.labelUi, color = colors.signalCrimson)
             }
         }
     }
@@ -1207,21 +1283,23 @@ fun QueuedFollowupTray(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = spacing.md, vertical = spacing.xs)
+            .clip(shapes.md)
             .background(colors.stratumBase)
-            .border(spacing.hairlineWidth, colors.hairline),
+            .border(spacing.hairlineWidth, colors.hairline, shapes.md),
     ) {
         if (queuePaused) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(colors.signalAmberDim)
-                    .padding(horizontal = spacing.md, vertical = 2.dp),
+                    .padding(horizontal = spacing.md, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "QUEUE PAUSED AFTER CANCEL/ERROR",
-                    style = type.labelTelemetry,
+                    text = "Queue paused after stop or error",
+                    style = type.labelSmallUi,
                     color = colors.signalAmber,
                 )
                 if (items.isNotEmpty()) {
@@ -1229,17 +1307,24 @@ fun QueuedFollowupTray(
                         onClick = onResumeQueue,
                         modifier = Modifier.defaultMinSize(
                             minWidth = spacing.touchFloor,
-                            minHeight = spacing.touchFloor,
+                            minHeight = 40.dp,
                         ),
                     ) {
-                        Text("RESUME", style = type.labelTelemetry, color = colors.signalAmber)
+                        Text("Resume", style = type.labelUi, color = colors.signalAmber)
                     }
                 }
             }
             HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+        } else if (items.isNotEmpty()) {
+            Text(
+                text = "Up next · ${items.size} queued",
+                style = type.labelSmallUi,
+                color = colors.inkMuted,
+                modifier = Modifier.padding(start = spacing.md, top = spacing.sm, bottom = 2.dp),
+            )
         }
 
-        items.sortedBy { it.position }.forEach { item ->
+        items.sortedBy { it.position }.forEachIndexed { idx, item ->
             if (editingItemId == item.itemId) {
                 Row(
                     modifier = Modifier
@@ -1263,7 +1348,7 @@ fun QueuedFollowupTray(
                             minHeight = spacing.touchFloor,
                         ),
                     ) {
-                        Text("SAVE", style = type.labelTelemetry, color = colors.signalCyan)
+                        Text("Save", style = type.labelUi, color = colors.signalCyan)
                     }
                     TextButton(
                         onClick = onCancelEdit,
@@ -1272,7 +1357,7 @@ fun QueuedFollowupTray(
                             minHeight = spacing.touchFloor,
                         ),
                     ) {
-                        Text("ESC", style = type.labelTelemetry, color = colors.inkMuted)
+                        Text("Cancel", style = type.labelUi, color = colors.inkMuted)
                     }
                 }
             } else {
@@ -1284,7 +1369,7 @@ fun QueuedFollowupTray(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "#${item.position + 1}",
+                        text = "${item.position + 1}.",
                         style = type.monoMicro,
                         color = colors.signalAmber,
                     )
@@ -1300,7 +1385,7 @@ fun QueuedFollowupTray(
                         if (item.attachmentIds.isNotEmpty()) {
                             Text(
                                 text = "${item.attachmentIds.size} attachment(s)",
-                                style = type.monoMicro,
+                                style = type.labelSmallUi,
                                 color = colors.inkMuted,
                             )
                         }
@@ -1314,10 +1399,10 @@ fun QueuedFollowupTray(
                         ),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Edit,
+                            imageVector = Icons.Rounded.Edit,
                             contentDescription = "Edit queued prompt ${item.position + 1}",
                             tint = colors.inkSecondary,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
 
@@ -1329,10 +1414,10 @@ fun QueuedFollowupTray(
                         ),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            imageVector = Icons.Rounded.DeleteOutline,
                             contentDescription = "Delete queued prompt ${item.position + 1}",
                             tint = colors.signalCrimson,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
 
@@ -1343,16 +1428,18 @@ fun QueuedFollowupTray(
                             minHeight = spacing.touchFloor,
                         ),
                     ) {
-                        Text("Send Now", style = type.labelTelemetry, color = colors.signalCyan)
+                        Text("Send now", style = type.labelUi, color = colors.signalCyan)
                     }
                 }
             }
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+            if (idx < items.lastIndex) {
+                HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+            }
         }
     }
 }
 
-// ── Thumb-Zone Composer Dock ────────────────────────────────────────────────
+// ── Modern Rounded Chat Composer Dock ──────────────────────────────────────
 
 @Composable
 fun ThumbZoneComposerDock(
@@ -1398,7 +1485,7 @@ fun ThumbZoneComposerDock(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(colors.stratumBase)
+            .background(colors.chassisVoid)
             .imePadding(),
     ) {
         // 1. IME-Bounded @file Autocomplete (maxHeight = 180.dp)
@@ -1406,9 +1493,11 @@ fun ThumbZoneComposerDock(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = spacing.md, vertical = spacing.xs)
                     .heightIn(max = 180.dp)
+                    .clip(shapes.md)
                     .background(colors.stratumRaised)
-                    .border(spacing.hairlineWidth, colors.signalCyan),
+                    .border(spacing.hairlineWidth, colors.signalCyan, shapes.md),
             ) {
                 items(atFileCandidates, key = { "${it.root}:${it.path}" }) { fileItem ->
                     Row(
@@ -1431,7 +1520,7 @@ fun ThumbZoneComposerDock(
                         Spacer(modifier = Modifier.width(spacing.sm))
                         Text(
                             text = basenameOfPath(fileItem.root),
-                            style = type.monoMicro,
+                            style = type.labelSmallUi,
                             color = colors.signalCyan,
                         )
                     }
@@ -1440,24 +1529,22 @@ fun ThumbZoneComposerDock(
             }
         }
 
-        // 2. Slash Command Chips Row
+        // 2. Slash Command Pills Row
         if (slashCommands.isNotEmpty()) {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = spacing.sm, vertical = spacing.xs),
+                contentPadding = PaddingValues(horizontal = spacing.md, vertical = spacing.xs),
                 horizontalArrangement = Arrangement.spacedBy(spacing.xs),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(colors.stratumBase),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 items(slashCommands, key = { it.name }) { cmd ->
                     Row(
                         modifier = Modifier
-                            .defaultMinSize(minHeight = spacing.touchFloor)
-                            .clip(shapes.sm)
-                            .background(colors.stratumRaised)
-                            .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm)
+                            .defaultMinSize(minHeight = 40.dp)
+                            .clip(shapes.pill)
+                            .background(colors.stratumBase)
+                            .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.pill)
                             .clickable { onSelectSlashCommand(cmd.name) }
-                            .padding(horizontal = spacing.md),
+                            .padding(horizontal = spacing.md, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(spacing.xs),
                     ) {
@@ -1465,7 +1552,7 @@ fun ThumbZoneComposerDock(
                         if (cmd.description.isNotBlank()) {
                             Text(
                                 text = cmd.description,
-                                style = type.monoMicro,
+                                style = type.labelSmallUi,
                                 color = colors.inkMuted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -1474,13 +1561,12 @@ fun ThumbZoneComposerDock(
                     }
                 }
             }
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
         }
 
         // 3. Magic-Byte Attachment Preview Strip
         if (attachments.isNotEmpty()) {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = spacing.sm, vertical = spacing.xs),
+                contentPadding = PaddingValues(horizontal = spacing.md, vertical = spacing.xs),
                 horizontalArrangement = Arrangement.spacedBy(spacing.xs),
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -1492,42 +1578,45 @@ fun ThumbZoneComposerDock(
                     )
                 }
             }
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
         }
 
-        HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+        // 4. Unified Rounded Chat Input Bar
+        val hasReadyContent = draftText.isNotBlank() ||
+            attachments.any { it.state == AttachmentUploadState.READY }
+        val anyUploading = attachments.any { it.state == AttachmentUploadState.UPLOADING }
+        val canSend = hasReadyContent && !anyUploading && !isSubmitting
 
-        // 4. Primary Composer Row: [Attach] [/] [Multi-line stratumWell field] [SEND / QUEUE]
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = spacing.xs, vertical = spacing.xs),
+                .padding(horizontal = spacing.md, vertical = spacing.sm)
+                .clip(shapes.lg)
+                .background(colors.stratumBase)
+                .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.lg)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             IconButton(
                 onClick = onPickAttachment,
                 modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
             ) {
                 Icon(
-                    imageVector = Icons.Default.AttachFile,
+                    imageVector = Icons.Rounded.AttachFile,
                     contentDescription = "Attach file",
                     tint = colors.inkSecondary,
                 )
             }
 
-            OutlinedButton(
+            IconButton(
                 onClick = onToggleSlashBar,
-                shape = shapes.sm,
-                border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
-                contentPadding = PaddingValues(0.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = colors.stratumRaised,
-                    contentColor = colors.signalCyan,
-                ),
                 modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
             ) {
-                Text("/", style = type.monoCode)
+                Text(
+                    text = "/",
+                    style = type.titleBar,
+                    color = colors.signalCyan,
+                )
             }
 
             OutlinedTextField(
@@ -1538,8 +1627,8 @@ fun ThumbZoneComposerDock(
                 },
                 placeholder = {
                     Text(
-                        text = if (isTurnActive) "Queue follow-up (@file, /cmd)..." else "Prompt Antigravity (@file, /cmd)...",
-                        style = type.bodyCompact,
+                        text = if (isTurnActive) "Queue a follow-up..." else "Message Antigravity...",
+                        style = type.bodyProse,
                         color = colors.inkMuted,
                     )
                 },
@@ -1547,10 +1636,10 @@ fun ThumbZoneComposerDock(
                 maxLines = 5,
                 shape = shapes.md,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = colors.stratumWell,
-                    unfocusedContainerColor = colors.stratumWell,
-                    focusedBorderColor = colors.hairlineStrong,
-                    unfocusedBorderColor = colors.hairline,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
                     focusedTextColor = colors.inkPrimary,
                     unfocusedTextColor = colors.inkPrimary,
                     cursorColor = colors.signalCyan,
@@ -1558,28 +1647,42 @@ fun ThumbZoneComposerDock(
                 modifier = Modifier.weight(1f),
             )
 
-            val hasReadyContent = draftText.isNotBlank() ||
-                attachments.any { it.state == AttachmentUploadState.READY }
-            val anyUploading = attachments.any { it.state == AttachmentUploadState.UPLOADING }
-
-            Button(
-                onClick = onSubmit,
-                enabled = hasReadyContent && !anyUploading && !isSubmitting,
-                shape = shapes.sm,
-                elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp, 0.dp, 0.dp, 0.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isTurnActive) colors.signalAmber else colors.signalCyan,
-                    contentColor = colors.inkInverse,
-                    disabledContainerColor = colors.stratumRaised,
-                    disabledContentColor = colors.inkMuted,
-                ),
-                contentPadding = PaddingValues(horizontal = spacing.md, vertical = 0.dp),
-                modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = spacing.touchFloor),
+            Box(
+                modifier = Modifier
+                    .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
+                    .padding(4.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = if (isTurnActive) "QUEUE" else "SEND",
-                    style = type.labelTelemetry,
-                )
+                val buttonBg = when {
+                    !canSend -> colors.stratumRaised
+                    isTurnActive -> colors.signalAmber
+                    else -> colors.signalCyan
+                }
+                val iconTint = if (canSend) colors.inkInverse else colors.inkMuted
+
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(buttonBg)
+                        .clickable(enabled = canSend, onClick = onSubmit),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSubmitting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.inkInverse,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.ArrowUpward,
+                            contentDescription = if (isTurnActive) "Queue follow-up" else "Send message",
+                            tint = iconTint,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
             }
         }
     }
@@ -1602,7 +1705,7 @@ private fun AttachmentPreviewChip(
         AttachmentUploadState.UPLOADING -> colors.signalCyan
         AttachmentUploadState.READY -> colors.hairlineStrong
     }
-    val bgColor = if (isFailed) colors.signalCrimsonDim else colors.stratumRaised
+    val bgColor = if (isFailed) colors.signalCrimsonDim else colors.stratumBase
 
     val decodedBitmap = remember(thumbnailBytes) {
         thumbnailBytes?.let { bytes ->
@@ -1632,8 +1735,8 @@ private fun AttachmentPreviewChip(
             Box(
                 modifier = Modifier
                     .clip(shapes.xs)
-                    .background(colors.stratumWell)
-                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                    .background(colors.stratumRaised)
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
             ) {
                 Text(
                     text = mimeBadgeLabel(record.mimeType),
@@ -1646,7 +1749,7 @@ private fun AttachmentPreviewChip(
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
                 text = record.filename,
-                style = type.monoMicro,
+                style = type.labelSmallUi,
                 color = colors.inkPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1662,7 +1765,7 @@ private fun AttachmentPreviewChip(
                             strokeWidth = 1.5.dp,
                             color = colors.signalCyan,
                         )
-                        Text("UPLOADING", style = type.monoMicro, color = colors.signalCyan)
+                        Text("Uploading", style = type.labelSmallUi, color = colors.signalCyan)
                     }
                 }
                 AttachmentUploadState.READY -> {
@@ -1675,7 +1778,7 @@ private fun AttachmentPreviewChip(
                 AttachmentUploadState.FAILED -> {
                     val codeBadge = listOfNotNull(record.errorStatus?.toString(), record.errorCode)
                         .joinToString(" ")
-                        .ifBlank { "REJECTED" }
+                        .ifBlank { "Rejected" }
                     Text(
                         text = codeBadge,
                         style = type.monoMicro,
@@ -1690,7 +1793,7 @@ private fun AttachmentPreviewChip(
             modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
         ) {
             Icon(
-                imageVector = Icons.Default.Close,
+                imageVector = Icons.Rounded.Close,
                 contentDescription = "Remove attachment ${record.filename}",
                 tint = if (isFailed) colors.signalCrimson else colors.inkSecondary,
                 modifier = Modifier.size(16.dp),
@@ -1702,8 +1805,8 @@ private fun AttachmentPreviewChip(
 private fun mimeBadgeLabel(mime: String): String = when {
     mime == "application/pdf" -> "PDF"
     mime.startsWith("image/") -> mime.removePrefix("image/").uppercase().take(4)
-    mime.startsWith("text/") || mime.contains("json") -> "UTF-8"
-    else -> "BIN"
+    mime.startsWith("text/") || mime.contains("json") -> "TEXT"
+    else -> "FILE"
 }
 
 internal fun formatTokenCompact(tokens: Long): String = when {

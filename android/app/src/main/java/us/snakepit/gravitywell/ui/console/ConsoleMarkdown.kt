@@ -375,32 +375,34 @@ fun MarkdownStratumContent(
                             modifier = Modifier
                                 .padding(horizontal = spacing.proseHorizontalMargin)
                                 .fillMaxWidth()
-                                .background(colors.stratumRaised)
-                                .border(spacing.hairlineWidth, colors.hairline),
+                                .clip(shapes.sm)
+                                .background(colors.stratumBase)
+                                .border(spacing.hairlineWidth, colors.hairline, shapes.sm),
                         ) {
                             Box(
                                 modifier = Modifier
                                     .widthIn(min = spacing.statusRailWidth)
                                     .background(colors.signalCyan)
-                                    .padding(vertical = spacing.sm),
+                                    .padding(vertical = spacing.md),
                             )
                             Text(
                                 text = ConsoleMarkdownParser.parseInline(block.text, colors),
                                 style = type.bodyCompact,
                                 color = colors.inkSecondary,
-                                modifier = Modifier.padding(spacing.sm),
+                                modifier = Modifier.padding(spacing.md),
                             )
                         }
                     }
 
                     is MarkdownBlock.CodeFence -> {
-                        // Full-bleed stratumWell code block (0.dp horizontal margin, 12.dp internal padding)
                         var copied by remember(block.code) { mutableStateOf(false) }
                         Column(
                             modifier = Modifier
+                                .padding(horizontal = spacing.proseHorizontalMargin)
                                 .fillMaxWidth()
+                                .clip(shapes.md)
                                 .background(colors.stratumWell)
-                                .border(spacing.hairlineWidth, colors.hairline),
+                                .border(spacing.hairlineWidth, colors.hairline, shapes.md),
                         ) {
                             Row(
                                 modifier = Modifier
@@ -412,8 +414,8 @@ fun MarkdownStratumContent(
                             ) {
                                 Text(
                                     text = buildString {
-                                        append(block.language.ifBlank { "CODE" }.uppercase())
-                                        if (!block.isClosed) append(" · STREAMING")
+                                        append(block.language.ifBlank { "code" }.lowercase())
+                                        if (!block.isClosed) append(" · streaming")
                                     },
                                     style = type.monoMicro,
                                     color = if (block.isClosed) colors.inkMuted else colors.signalCyan,
@@ -424,6 +426,7 @@ fun MarkdownStratumContent(
                                             minWidth = spacing.touchFloor,
                                             minHeight = spacing.touchFloor,
                                         )
+                                        .clip(shapes.sm)
                                         .clickable {
                                             copyToClipboard(context, block.code)
                                             copied = true
@@ -432,8 +435,8 @@ fun MarkdownStratumContent(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
-                                        text = if (copied) "COPIED" else "COPY",
-                                        style = type.labelTelemetry,
+                                        text = if (copied) "Copied" else "Copy",
+                                        style = type.labelSmallUi,
                                         color = if (copied) colors.signalEmerald else colors.signalCyan,
                                     )
                                 }
@@ -458,8 +461,8 @@ fun MarkdownStratumContent(
                         Box(
                             modifier = Modifier
                                 .padding(horizontal = spacing.proseHorizontalMargin)
-                                .clip(shapes.sm)
-                                .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
+                                .clip(shapes.md)
+                                .border(spacing.hairlineWidth, colors.hairline, shapes.md)
                                 .horizontalScroll(rememberScrollState()),
                         ) {
                             Column {
@@ -467,29 +470,31 @@ fun MarkdownStratumContent(
                                     block.headers.forEach { header ->
                                         Text(
                                             text = header,
-                                            style = type.labelTelemetry,
+                                            style = type.labelSmallUi,
                                             color = colors.inkPrimary,
                                             modifier = Modifier
                                                 .widthIn(min = 96.dp)
-                                                .padding(spacing.sm),
+                                                .padding(horizontal = spacing.md, vertical = spacing.sm),
                                         )
                                     }
                                 }
                                 HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
-                                block.rows.forEach { row ->
+                                block.rows.forEachIndexed { rowIdx, row ->
                                     Row(modifier = Modifier.background(colors.stratumBase)) {
                                         block.headers.indices.forEach { colIdx ->
                                             Text(
                                                 text = row.getOrNull(colIdx).orEmpty(),
-                                                style = type.monoCode,
+                                                style = type.bodyCompact,
                                                 color = colors.inkSecondary,
                                                 modifier = Modifier
                                                     .widthIn(min = 96.dp)
-                                                    .padding(spacing.sm),
+                                                    .padding(horizontal = spacing.md, vertical = spacing.sm),
                                             )
                                         }
                                     }
-                                    HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+                                    if (rowIdx < block.rows.lastIndex) {
+                                        HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+                                    }
                                 }
                             }
                         }

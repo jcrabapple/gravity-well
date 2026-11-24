@@ -8,8 +8,8 @@ Type=simple
 WorkingDirectory=/home/jason/projects/gravity-well/gateway
 UnsetEnvironment=PYTHONPATH
 Environment=PYTHONUNBUFFERED=1
-Environment=PATH=/home/jason/.local/bin:/usr/local/bin:/usr/bin:/bin
-Environment=GRAVITY_WELL_AGY_BIN=/home/jason/.local/bin/agy
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GRAVITY_WELL_AGY_BIN=%h/.local/bin/agy
 Environment=GRAVITY_WELL_HOST=0.0.0.0
 Environment=GRAVITY_WELL_PORT=9340
 EnvironmentFile=-%h/.config/gravity-well/gateway.env

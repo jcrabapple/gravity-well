@@ -22,11 +22,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Insights
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -150,12 +151,11 @@ fun GravityWellAdaptiveShell(
 
                 if (showTopHostBar) {
                     PersistentHostTopBar(
+                        destination = shellState.destination,
                         host = shellState.activeHost,
                         wsState = shellState.wsState,
-                        latestCursor = shellState.latestCursor,
                         onOpenHostSwitcher = { controller.setShowHostSwitcher(true) },
                     )
-                    HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
                 }
 
                 Box(
@@ -510,7 +510,7 @@ private fun BoundConsoleOrQuickAttachPane(
     }
 }
 
-// ── Vernier Rig NavigationBar (<600dp) & NavigationRail (>=600dp) ───────────
+// ── Modern Chat-First NavigationBar (<600dp) & NavigationRail (>=600dp) ───
 
 @Composable
 fun VernierNavigationBar(
@@ -520,43 +520,55 @@ fun VernierNavigationBar(
 ) {
     val colors = GravityWellTheme.colors
     val type = GravityWellTheme.typography
+    val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
+
+    val highlightedTab = if (activeDestination == TopLevelDestination.CONSOLE) {
+        TopLevelDestination.SESSIONS
+    } else {
+        activeDestination
+    }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(60.dp)
+            .height(68.dp)
             .background(colors.stratumBase)
+            .padding(horizontal = spacing.md, vertical = 6.dp)
             .selectableGroup(),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        TopLevelDestination.entries.forEach { dest ->
-            val selected = dest == activeDestination
+        TopLevelDestination.primaryTabs.forEach { dest ->
+            val selected = dest == highlightedTab
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
+                    .clip(shapes.md)
                     .clickable(role = Role.Tab) { onSelectDestination(dest) },
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.Center,
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(spacing.statusRailWidth)
-                        .background(if (selected) colors.signalCyan else colors.stratumBase),
-                )
-                Icon(
-                    imageVector = destinationIcon(dest),
-                    contentDescription = dest.label,
-                    tint = if (selected) colors.inkPrimary else colors.inkMuted,
-                    modifier = Modifier.size(20.dp),
-                )
+                        .clip(shapes.pill)
+                        .background(if (selected) colors.signalCyanDim else colors.stratumBase)
+                        .padding(horizontal = 18.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = destinationIcon(dest),
+                        contentDescription = dest.label,
+                        tint = if (selected) colors.signalCyan else colors.inkMuted,
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = dest.label,
-                    style = type.labelTelemetry,
+                    style = type.labelSmallUi,
                     color = if (selected) colors.inkPrimary else colors.inkMuted,
-                    modifier = Modifier.padding(bottom = 6.dp),
                 )
             }
         }
@@ -577,32 +589,39 @@ fun VernierNavigationRail(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
+    val highlightedTab = if (activeDestination == TopLevelDestination.CONSOLE) {
+        TopLevelDestination.SESSIONS
+    } else {
+        activeDestination
+    }
+
     Column(
         modifier = modifier
-            .width(72.dp)
+            .width(82.dp)
             .fillMaxHeight()
             .background(colors.stratumBase)
+            .padding(vertical = spacing.md)
             .selectableGroup(),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Box(
             modifier = Modifier
-                .padding(vertical = spacing.sm)
                 .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
-                .clip(shapes.sm)
+                .clip(shapes.pill)
                 .background(colors.stratumRaised)
-                .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm)
+                .border(spacing.hairlineWidth, colors.hairline, shapes.pill)
                 .clickable(onClick = onOpenHostSwitcher)
-                .padding(spacing.xs),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 Box(
                     modifier = Modifier
-                        .size(7.dp)
+                        .size(8.dp)
                         .clip(CircleShape)
                         .background(wsDotColor(wsState)),
                 )
@@ -615,41 +634,42 @@ fun VernierNavigationRail(
             }
         }
 
-        HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+        Spacer(modifier = Modifier.height(spacing.xs))
 
-        TopLevelDestination.entries.forEach { dest ->
-            val selected = dest == activeDestination
-            Row(
+        TopLevelDestination.primaryTabs.forEach { dest ->
+            val selected = dest == highlightedTab
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
-                    .clickable(role = Role.Tab) { onSelectDestination(dest) },
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(horizontal = spacing.sm)
+                    .defaultMinSize(minHeight = 60.dp)
+                    .clip(shapes.md)
+                    .clickable(role = Role.Tab) { onSelectDestination(dest) }
+                    .padding(vertical = spacing.xs),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
                 Box(
                     modifier = Modifier
-                        .width(spacing.statusRailWidth)
-                        .fillMaxHeight()
-                        .background(if (selected) colors.signalCyan else colors.stratumBase),
-                )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                        .clip(shapes.pill)
+                        .background(if (selected) colors.signalCyanDim else colors.stratumBase)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = destinationIcon(dest),
                         contentDescription = dest.label,
-                        tint = if (selected) colors.inkPrimary else colors.inkMuted,
+                        tint = if (selected) colors.signalCyan else colors.inkMuted,
                         modifier = Modifier.size(20.dp),
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = dest.label.take(4),
-                        style = type.monoMicro,
-                        color = if (selected) colors.inkPrimary else colors.inkMuted,
-                    )
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = dest.label,
+                    style = type.labelSmallUi,
+                    color = if (selected) colors.inkPrimary else colors.inkMuted,
+                    maxLines = 1,
+                )
             }
         }
     }
@@ -657,9 +677,9 @@ fun VernierNavigationRail(
 
 @Composable
 fun PersistentHostTopBar(
+    destination: TopLevelDestination,
     host: CachedHost?,
     wsState: WsConnectionState,
-    latestCursor: Long,
     onOpenHostSwitcher: () -> Unit,
 ) {
     val colors = GravityWellTheme.colors
@@ -667,31 +687,39 @@ fun PersistentHostTopBar(
     val shapes = GravityWellTheme.shapes
     val spacing = GravityWellTheme.spacing
 
+    val screenTitle = when (destination) {
+        TopLevelDestination.SESSIONS,
+        TopLevelDestination.CONSOLE,
+        -> "Chats"
+        TopLevelDestination.OBSERVATORY -> "Status"
+        TopLevelDestination.DECK -> "Settings"
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 52.dp)
-            .background(colors.stratumBase)
-            .padding(horizontal = spacing.md),
+            .defaultMinSize(minHeight = 58.dp)
+            .background(colors.chassisVoid)
+            .padding(horizontal = spacing.lg, vertical = spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            text = "GRAVITY WELL",
-            style = type.labelTelemetry,
-            color = colors.inkSecondary,
+            text = screenTitle,
+            style = type.headlineSection,
+            color = colors.inkPrimary,
         )
 
         Row(
             modifier = Modifier
-                .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
-                .clip(shapes.sm)
-                .background(colors.stratumRaised)
-                .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm)
+                .defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp)
+                .clip(shapes.pill)
+                .background(colors.stratumBase)
+                .border(spacing.hairlineWidth, colors.hairline, shapes.pill)
                 .clickable(onClick = onOpenHostSwitcher)
-                .padding(horizontal = spacing.md, vertical = 6.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Box(
                 modifier = Modifier
@@ -700,36 +728,27 @@ fun PersistentHostTopBar(
                     .background(wsDotColor(wsState)),
             )
             Text(
-                text = buildString {
-                    val hostLabel = host?.label ?: "Select Host"
-                    val hostVer = host?.agyVersion
-                    append(hostLabel)
-                    if (!hostVer.isNullOrBlank()) {
-                        append(" · v")
-                        append(hostVer)
-                    }
-                },
-                style = type.monoCode,
+                text = host?.label ?: "Select host",
+                style = type.labelUi,
                 color = colors.inkPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (latestCursor > 0L) {
-                Text(
-                    text = "#$latestCursor",
-                    style = type.monoMicro,
-                    color = colors.inkMuted,
-                )
-            }
+            Icon(
+                imageVector = Icons.Rounded.ExpandMore,
+                contentDescription = "Switch host",
+                tint = colors.inkMuted,
+                modifier = Modifier.size(16.dp),
+            )
         }
     }
 }
 
 private fun destinationIcon(dest: TopLevelDestination): ImageVector = when (dest) {
-    TopLevelDestination.SESSIONS -> Icons.Default.ViewAgenda
-    TopLevelDestination.CONSOLE -> Icons.Default.Terminal
-    TopLevelDestination.OBSERVATORY -> Icons.Default.Speed
-    TopLevelDestination.DECK -> Icons.Default.Tune
+    TopLevelDestination.SESSIONS -> Icons.Rounded.Forum
+    TopLevelDestination.CONSOLE -> Icons.AutoMirrored.Rounded.Chat
+    TopLevelDestination.OBSERVATORY -> Icons.Rounded.Insights
+    TopLevelDestination.DECK -> Icons.Rounded.Settings
 }
 
 @Composable

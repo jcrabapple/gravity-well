@@ -140,14 +140,28 @@ class AdaptiveShellAndComplianceTest {
     }
 
     @Test
-    fun `vernier rig source audit enforces zero literal hex outside Color_kt and zero chat bubbles`() {
+    fun `primary navigation exposes 3 chat-first tabs`() {
+        assertEquals(
+            listOf(
+                TopLevelDestination.SESSIONS,
+                TopLevelDestination.OBSERVATORY,
+                TopLevelDestination.DECK,
+            ),
+            TopLevelDestination.primaryTabs,
+        )
+        assertEquals("Chats", TopLevelDestination.SESSIONS.label)
+        assertEquals("Status", TopLevelDestination.OBSERVATORY.label)
+        assertEquals("Settings", TopLevelDestination.DECK.label)
+    }
+
+    @Test
+    fun `design system source audit enforces zero literal hex outside Color_kt and no dynamic wallpaper colors`() {
         val srcRoot = locateMainJavaRoot()
         val ktFiles = srcRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
         assertTrue("Expected Kotlin source files under $srcRoot", ktFiles.size >= 15)
 
         val literalColorRegex = Regex("""\bColor\s*\(\s*0x""")
         val dynamicSchemeRegex = Regex("""\bdynamic(?:Dark|Light)ColorScheme\b""")
-        val chatBubbleCornerRegex = Regex("""RoundedCornerShape\s*\(\s*(?:1[6-9]|[2-9]\d)\s*\.dp""")
 
         for (file in ktFiles) {
             val rel = file.relativeTo(srcRoot).invariantSeparatorsPath
@@ -162,13 +176,6 @@ class AdaptiveShellAndComplianceTest {
                 assertFalse(
                     "Literal Color(0x...) forbidden outside theme/Color.kt, found in $rel",
                     literalColorRegex.containsMatchIn(text),
-                )
-            }
-
-            if (rel.startsWith("ui/console/")) {
-                assertFalse(
-                    "Forbidden >=16.dp chat bubble RoundedCornerShape in $rel",
-                    chatBubbleCornerRegex.containsMatchIn(text),
                 )
             }
         }

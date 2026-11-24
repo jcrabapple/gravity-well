@@ -11,13 +11,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -65,42 +66,47 @@ fun AddMcpServerSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
-            Text("ADD MCP SERVER", style = type.headlineSection, color = colors.inkPrimary)
-            Text(
-                text = "Invokes `agy mcp add` with flags strictly before `<name>`. Secret values are masked on subsequent reads.",
-                style = type.bodyCompact,
-                color = colors.inkSecondary,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Add MCP server", style = type.headlineSection, color = colors.inkPrimary)
+                Text(
+                    text = "Secret env vars and headers are masked after saving.",
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
+            }
 
-            // Type segmented toggle: stdio | http
+            // Type pill toggle: stdio | http
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(shapes.sm)
-                    .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm),
+                    .clip(shapes.pill)
+                    .background(colors.stratumRaised)
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
-                listOf("stdio", "http").forEach { kind ->
+                listOf("stdio" to "Local (stdio)", "http" to "Remote (HTTP)").forEach { (kind, label) ->
                     val selected = form.type == kind
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .defaultMinSize(minHeight = spacing.touchFloor)
+                            .defaultMinSize(minHeight = 40.dp)
+                            .clip(shapes.pill)
                             .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
                             .clickable(role = Role.Tab) { onUpdateForm { it.copy(type = kind) } },
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = kind.uppercase(),
-                            style = type.labelTelemetry,
+                            text = label,
+                            style = type.labelUi,
                             color = if (selected) colors.signalCyan else colors.inkSecondary,
                         )
                     }
@@ -112,8 +118,9 @@ fun AddMcpServerSheet(
                 onValueChange = { v -> onUpdateForm { it.copy(name = v) } },
                 singleLine = true,
                 textStyle = type.monoCode,
-                label = { Text("Server Name", style = type.labelTelemetry, color = colors.inkSecondary) },
+                label = { Text("Server name", style = type.labelSmallUi, color = colors.inkSecondary) },
                 placeholder = { Text("e.g. codegraph", style = type.bodyCompact, color = colors.inkMuted) },
+                shape = shapes.sm,
                 colors = textFieldColors,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -125,8 +132,8 @@ fun AddMcpServerSheet(
                 textStyle = type.monoCode,
                 label = {
                     Text(
-                        text = if (form.type == "http") "Server URL (https://...)" else "Command Binary",
-                        style = type.labelTelemetry,
+                        text = if (form.type == "http") "Server URL" else "Command",
+                        style = type.labelSmallUi,
                         color = colors.inkSecondary,
                     )
                 },
@@ -137,6 +144,7 @@ fun AddMcpServerSheet(
                         color = colors.inkMuted,
                     )
                 },
+                shape = shapes.sm,
                 colors = textFieldColors,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -147,8 +155,9 @@ fun AddMcpServerSheet(
                     onValueChange = { v -> onUpdateForm { it.copy(argsLine = v) } },
                     singleLine = true,
                     textStyle = type.monoCode,
-                    label = { Text("Arguments (space-separated)", style = type.labelTelemetry, color = colors.inkSecondary) },
+                    label = { Text("Arguments (space-separated)", style = type.labelSmallUi, color = colors.inkSecondary) },
                     placeholder = { Text("mcp-server-git --repository .", style = type.bodyCompact, color = colors.inkMuted) },
+                    shape = shapes.sm,
                     colors = textFieldColors,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -161,7 +170,8 @@ fun AddMcpServerSheet(
                 maxLines = 4,
                 textStyle = type.monoCode,
                 visualTransformation = PasswordVisualTransformation(),
-                label = { Text("Env Vars (one NAME=value per line, masked)", style = type.labelTelemetry, color = colors.inkSecondary) },
+                label = { Text("Environment variables (NAME=value per line)", style = type.labelSmallUi, color = colors.inkSecondary) },
+                shape = shapes.sm,
                 colors = textFieldColors,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -174,7 +184,8 @@ fun AddMcpServerSheet(
                     maxLines = 4,
                     textStyle = type.monoCode,
                     visualTransformation = PasswordVisualTransformation(),
-                    label = { Text("HTTP Headers (one Header: value per line, masked)", style = type.labelTelemetry, color = colors.inkSecondary) },
+                    label = { Text("HTTP headers (Header: value per line)", style = type.labelSmallUi, color = colors.inkSecondary) },
+                    shape = shapes.sm,
                     colors = textFieldColors,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -187,18 +198,18 @@ fun AddMcpServerSheet(
                 OutlinedButton(
                     onClick = onDismiss,
                     enabled = !isMutating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = spacing.touchFloor),
                 ) {
-                    Text("CANCEL", style = type.labelTelemetry, color = colors.inkSecondary)
+                    Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
                 }
                 Button(
                     onClick = onSubmit,
                     enabled = !isMutating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.signalCyan,
                         contentColor = colors.inkInverse,
@@ -219,9 +230,10 @@ fun AddMcpServerSheet(
                         )
                         Spacer(modifier = Modifier.width(spacing.xs))
                     }
-                    Text("SAVE MCP", style = type.labelTelemetry)
+                    Text("Save server", style = type.labelUi)
                 }
             }
+            Spacer(modifier = Modifier.height(spacing.md))
         }
     }
 }
@@ -257,25 +269,27 @@ fun AgentEditorSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
-            Text(
-                text = if (form.isEditingExisting) "EDIT CUSTOM AGENT" else "NEW CUSTOM AGENT",
-                style = type.headlineSection,
-                color = colors.inkPrimary,
-            )
-            Text(
-                text = "Stored atomically in `~/.gemini/antigravity-cli/agents/<slug>.md`.",
-                style = type.bodyCompact,
-                color = colors.inkSecondary,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = if (form.isEditingExisting) "Edit custom agent" else "New custom agent",
+                    style = type.headlineSection,
+                    color = colors.inkPrimary,
+                )
+                Text(
+                    text = "Saved to ~/.gemini/antigravity-cli/agents/<slug>.md",
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
+            }
 
             OutlinedTextField(
                 value = form.slug,
@@ -287,15 +301,16 @@ fun AgentEditorSheet(
                 readOnly = form.isEditingExisting,
                 singleLine = true,
                 textStyle = type.monoCode,
-                label = { Text("Slug ([a-z0-9][a-z0-9_-]{0,63})", style = type.labelTelemetry, color = colors.inkSecondary) },
+                label = { Text("Agent slug", style = type.labelSmallUi, color = colors.inkSecondary) },
                 placeholder = { Text("code-auditor", style = type.bodyCompact, color = colors.inkMuted) },
+                shape = shapes.sm,
                 colors = textFieldColors,
                 modifier = Modifier.fillMaxWidth(),
             )
             if (form.slug.isNotEmpty() && !slugValid) {
                 Text(
-                    text = "Slug must start with lowercase letter/digit and use only [a-z0-9_-] (max 64 chars).",
-                    style = type.monoMicro,
+                    text = "Start with a lowercase letter or digit and use only a-z, 0-9, _ or - (max 64 chars).",
+                    style = type.bodyCompact,
                     color = colors.signalCrimson,
                 )
             }
@@ -304,8 +319,9 @@ fun AgentEditorSheet(
                 value = form.description,
                 onValueChange = { v -> onUpdateForm { it.copy(description = v) } },
                 singleLine = true,
-                textStyle = type.bodyCompact,
-                label = { Text("Description", style = type.labelTelemetry, color = colors.inkSecondary) },
+                textStyle = type.bodyProse,
+                label = { Text("Description", style = type.labelSmallUi, color = colors.inkSecondary) },
+                shape = shapes.sm,
                 colors = textFieldColors,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -316,7 +332,8 @@ fun AgentEditorSheet(
                 minLines = 5,
                 maxLines = 10,
                 textStyle = type.monoCode,
-                label = { Text("Markdown System Prompt", style = type.labelTelemetry, color = colors.inkSecondary) },
+                label = { Text("System prompt (Markdown)", style = type.labelSmallUi, color = colors.inkSecondary) },
+                shape = shapes.sm,
                 colors = textFieldColors,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -328,18 +345,18 @@ fun AgentEditorSheet(
                 OutlinedButton(
                     onClick = onDismiss,
                     enabled = !isMutating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = spacing.touchFloor),
                 ) {
-                    Text("CANCEL", style = type.labelTelemetry, color = colors.inkSecondary)
+                    Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
                 }
                 Button(
                     onClick = onSubmit,
                     enabled = canSubmit,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.signalCyan,
                         contentColor = colors.inkInverse,
@@ -354,9 +371,10 @@ fun AgentEditorSheet(
                         .weight(1f)
                         .defaultMinSize(minHeight = spacing.touchFloor),
                 ) {
-                    Text("SAVE AGENT", style = type.labelTelemetry)
+                    Text("Save agent", style = type.labelUi)
                 }
             }
+            Spacer(modifier = Modifier.height(spacing.md))
         }
     }
 }
@@ -381,12 +399,12 @@ fun DestructiveActionConfirmSheet(
         containerColor = colors.stratumBase,
         contentColor = colors.inkPrimary,
         tonalElevation = spacing.elevationZero,
-        shape = shapes.md,
+        shape = shapes.sheetTop,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = spacing.lg, vertical = spacing.md),
+                .padding(horizontal = spacing.xl, vertical = spacing.sm),
             verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
             Row(
@@ -394,7 +412,7 @@ fun DestructiveActionConfirmSheet(
                 horizontalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Warning,
+                    imageVector = Icons.Rounded.WarningAmber,
                     contentDescription = null,
                     tint = colors.signalCrimson,
                 )
@@ -408,18 +426,18 @@ fun DestructiveActionConfirmSheet(
                 OutlinedButton(
                     onClick = onDismiss,
                     enabled = !isBusy,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = spacing.touchFloor),
                 ) {
-                    Text("CANCEL", style = type.labelTelemetry, color = colors.inkSecondary)
+                    Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
                 }
                 Button(
                     onClick = onConfirm,
                     enabled = !isBusy,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.signalCrimson,
                         contentColor = colors.inkInverse,
@@ -432,9 +450,10 @@ fun DestructiveActionConfirmSheet(
                         .weight(1f)
                         .defaultMinSize(minHeight = spacing.touchFloor),
                 ) {
-                    Text(confirmLabel, style = type.labelTelemetry)
+                    Text(confirmLabel, style = type.labelUi)
                 }
             }
+            Spacer(modifier = Modifier.height(spacing.md))
         }
     }
 }

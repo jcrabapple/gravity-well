@@ -20,16 +20,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -63,6 +64,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import us.snakepit.gravitywell.cache.CachedHost
 import us.snakepit.gravitywell.service.GravityWellNotifications
 import us.snakepit.gravitywell.theme.GravityWellTheme
+import us.snakepit.gravitywell.ui.console.formatModelDisplayName
 import us.snakepit.gravitywell.ui.sessions.PermissionRuleDto
 import us.snakepit.gravitywell.ui.shell.AdaptiveShellBreakpoints
 
@@ -147,77 +149,39 @@ fun ControlDeckScreen(
     ) {
         val isExpanded = maxWidth.value.toInt() >= AdaptiveShellBreakpoints.EXPANDED_WIDTH_DP
 
-        Column(
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            // ── Header + 4-Segment Sub-Tab Strip ─────────────────────────────
-            Column(
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ── Clean Pill Sub-Tabs + Refresh ────────────────────────────────
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(colors.stratumBase)
-                    .padding(horizontal = spacing.lg, vertical = spacing.sm),
-                verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                    .background(colors.chassisVoid)
+                    .padding(horizontal = spacing.lg, vertical = spacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("CONTROL DECK · ECOSYSTEM", style = type.labelTelemetry, color = colors.signalCyan)
-                        Text(
-                            text = activeHost?.label ?: "Host Switchboard",
-                            style = type.headlineSection,
-                            color = colors.inkPrimary,
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = onRefreshAll,
-                        shape = shapes.sm,
-                        border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
-                        contentPadding = PaddingValues(horizontal = spacing.md, vertical = 0.dp),
-                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-                    ) {
-                        if (state.isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = colors.signalCyan,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh Control Deck",
-                                tint = colors.signalCyan,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(spacing.xs))
-                        Text("SYNC", style = type.labelTelemetry, color = colors.inkPrimary)
-                    }
-                }
-
-                // 4 Sub-Tabs: MCP | PLUGINS | AGENTS & RULES | SYSTEM
-                Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(shapes.sm)
-                        .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm),
+                        .weight(1f)
+                        .clip(shapes.pill)
+                        .background(colors.stratumBase)
+                        .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     ControlDeckTab.entries.forEach { tab ->
                         val selected = tab == state.activeTab
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .defaultMinSize(minHeight = spacing.touchFloor)
-                                .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
+                                .defaultMinSize(minHeight = 40.dp)
+                                .clip(shapes.pill)
+                                .background(if (selected) colors.signalCyanDim else colors.stratumBase)
                                 .clickable(role = Role.Tab) { onSelectTab(tab) }
                                 .padding(horizontal = 4.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = tab.label,
-                                style = type.labelTelemetry,
+                                style = type.labelSmallUi,
                                 color = if (selected) colors.signalCyan else colors.inkSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -225,9 +189,26 @@ fun ControlDeckScreen(
                         }
                     }
                 }
-            }
 
-            HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+                IconButton(
+                    onClick = onRefreshAll,
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                ) {
+                    if (state.isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = colors.signalCyan,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Refresh settings",
+                            tint = colors.inkSecondary,
+                        )
+                    }
+                }
+            }
 
             Column(
                 modifier = Modifier
@@ -235,7 +216,7 @@ fun ControlDeckScreen(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = spacing.lg, vertical = spacing.md),
-                verticalArrangement = Arrangement.spacedBy(spacing.md),
+                verticalArrangement = Arrangement.spacedBy(spacing.lg),
             ) {
                 if (!state.errorBanner.isNullOrBlank()) {
                     BannerStrip(
@@ -321,11 +302,13 @@ fun ControlDeckScreen(
                         onRequestDeleteHost = onRequestDeleteHost,
                     )
                 }
+
+                Spacer(modifier = Modifier.height(spacing.md))
             }
         }
     }
 
-    // ── Sheets & Destructive Confirm Interlocks ──────────────────────────────
+    // ── Sheets & Destructive Confirmations ───────────────────────────────────
     if (state.showAddMcpSheet) {
         AddMcpServerSheet(
             form = state.addMcpForm,
@@ -348,9 +331,9 @@ fun ControlDeckScreen(
 
     if (state.pendingRemoveMcpName != null) {
         DestructiveActionConfirmSheet(
-            title = "REMOVE MCP SERVER",
-            detail = "Runs `agy mcp remove ${state.pendingRemoveMcpName}` on the host.",
-            confirmLabel = "REMOVE MCP",
+            title = "Remove MCP server",
+            detail = "Removes '${state.pendingRemoveMcpName}' from the host (`agy mcp remove`).",
+            confirmLabel = "Remove",
             isBusy = state.isMutating,
             onConfirm = onConfirmRemoveMcp,
             onDismiss = onCancelRemoveMcp,
@@ -359,9 +342,9 @@ fun ControlDeckScreen(
 
     if (state.pendingUninstallPluginName != null) {
         DestructiveActionConfirmSheet(
-            title = "UNINSTALL PLUGIN",
-            detail = "Runs `agy plugin uninstall ${state.pendingUninstallPluginName}` on the host.",
-            confirmLabel = "UNINSTALL",
+            title = "Uninstall plugin",
+            detail = "Uninstalls '${state.pendingUninstallPluginName}' from the host (`agy plugin uninstall`).",
+            confirmLabel = "Uninstall",
             isBusy = state.isMutating,
             onConfirm = onConfirmUninstallPlugin,
             onDismiss = onCancelUninstallPlugin,
@@ -370,9 +353,9 @@ fun ControlDeckScreen(
 
     if (state.pendingDeleteAgentSlug != null) {
         DestructiveActionConfirmSheet(
-            title = "DELETE CUSTOM AGENT",
+            title = "Delete custom agent",
             detail = "Deletes `~/.gemini/antigravity-cli/agents/${state.pendingDeleteAgentSlug}.md`.",
-            confirmLabel = "DELETE AGENT",
+            confirmLabel = "Delete",
             isBusy = state.isMutating,
             onConfirm = onConfirmDeleteAgent,
             onDismiss = onCancelDeleteAgent,
@@ -383,9 +366,9 @@ fun ControlDeckScreen(
         val targetLabel = hosts.firstOrNull { it.hostId == state.pendingDeleteHostId }?.label
             ?: state.pendingDeleteHostId
         DestructiveActionConfirmSheet(
-            title = "REMOVE GATEWAY HOST",
-            detail = "Deletes '$targetLabel' cached metadata from SQLite and wipes its encrypted bearer token from AndroidKeyStore.",
-            confirmLabel = "REMOVE HOST",
+            title = "Remove host",
+            detail = "Removes '$targetLabel' from local storage and wipes its encrypted token from Android Keystore.",
+            confirmLabel = "Remove host",
             isBusy = false,
             onConfirm = onConfirmDeleteHost,
             onDismiss = onCancelDeleteHost,
@@ -415,13 +398,13 @@ private fun BannerStrip(
             .clip(shapes.sm)
             .background(bg)
             .border(spacing.hairlineWidth, border, shapes.sm)
-            .padding(horizontal = spacing.md, vertical = spacing.xs),
+            .padding(start = spacing.md, end = spacing.xs, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
             text = message,
-            style = type.monoCode,
+            style = type.bodyCompact,
             color = fg,
             modifier = Modifier.weight(1f),
         )
@@ -430,7 +413,7 @@ private fun BannerStrip(
             modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
         ) {
             Icon(
-                imageVector = Icons.Default.Close,
+                imageVector = Icons.Rounded.Close,
                 contentDescription = "Dismiss notice",
                 tint = fg,
             )
@@ -465,23 +448,23 @@ private fun McpServersTabContent(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "MCP SERVERS (${servers.size})",
-                style = type.labelTelemetry,
-                color = colors.inkSecondary,
+                text = "MCP servers (${servers.size})",
+                style = type.titleBar,
+                color = colors.inkPrimary,
             )
             OutlinedButton(
                 onClick = onOpenAdd,
-                shape = shapes.sm,
+                shape = shapes.pill,
                 border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
                 colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = colors.signalCyanDim,
                     contentColor = colors.signalCyan,
                 ),
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
             ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(imageVector = Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(spacing.xs))
-                Text("ADD MCP", style = type.labelTelemetry)
+                Text("Add server", style = type.labelUi)
             }
         }
 
@@ -495,7 +478,7 @@ private fun McpServersTabContent(
                     .padding(spacing.lg),
             ) {
                 Text(
-                    text = "No MCP servers configured on this host (`agy mcp list`).",
+                    text = "No MCP servers configured on this host.",
                     style = type.bodyCompact,
                     color = colors.inkMuted,
                 )
@@ -573,7 +556,7 @@ private fun McpServerCard(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Row(
@@ -583,7 +566,7 @@ private fun McpServerCard(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(spacing.sm),
                 modifier = Modifier.weight(1f),
             ) {
                 Text(
@@ -595,14 +578,13 @@ private fun McpServerCard(
                 )
                 Box(
                     modifier = Modifier
-                        .clip(shapes.sm)
+                        .clip(shapes.pill)
                         .background(colors.stratumRaised)
-                        .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm)
-                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                 ) {
                     Text(
-                        text = server.type.uppercase(),
-                        style = type.monoMicro,
+                        text = if (server.type == "http") "HTTP" else "stdio",
+                        style = type.labelSmallUi,
                         color = colors.signalCyan,
                     )
                 }
@@ -644,19 +626,19 @@ private fun McpServerCard(
                 maskedKeys.forEach { keyTag ->
                     Row(
                         modifier = Modifier
-                            .clip(shapes.sm)
+                            .clip(shapes.pill)
                             .background(colors.stratumWell)
-                            .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                            .border(spacing.hairlineWidth, colors.hairline, shapes.pill)
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(keyTag, style = type.monoMicro, color = colors.inkSecondary)
                         Box(
                             modifier = Modifier
-                                .clip(shapes.xs)
+                                .clip(shapes.pill)
                                 .background(colors.signalVioletDim)
-                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
                         ) {
                             Text("[REDACTED]", style = type.monoMicro, color = colors.signalViolet)
                         }
@@ -672,11 +654,11 @@ private fun McpServerCard(
             OutlinedButton(
                 onClick = { onRequestRemove(server.name) },
                 enabled = !isMutating,
-                shape = shapes.sm,
+                shape = shapes.pill,
                 border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
             ) {
-                Text("REMOVE", style = type.labelTelemetry, color = colors.signalCrimson)
+                Text("Remove", style = type.labelUi, color = colors.signalCrimson)
             }
         }
     }
@@ -710,17 +692,17 @@ private fun PluginsTabContent(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(spacing.md),
     ) {
-        // Validate & Install Bar
+        // Validate & Install Card
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(shapes.md)
                 .background(colors.stratumBase)
                 .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-                .padding(spacing.md),
+                .padding(spacing.lg),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
-            Text("PLUGIN VALIDATE & INSTALL", style = type.labelTelemetry, color = colors.signalCyan)
+            Text("Install or validate a plugin", style = type.titleBar, color = colors.inkPrimary)
             OutlinedTextField(
                 value = targetDraft,
                 onValueChange = onTargetChange,
@@ -728,11 +710,12 @@ private fun PluginsTabContent(
                 textStyle = type.monoCode,
                 placeholder = {
                     Text(
-                        text = "Workspace plugin directory or https:// URL",
+                        text = "Plugin directory path or https:// URL",
                         style = type.bodyCompact,
                         color = colors.inkMuted,
                     )
                 },
+                shape = shapes.sm,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = colors.stratumWell,
                     unfocusedContainerColor = colors.stratumWell,
@@ -772,18 +755,18 @@ private fun PluginsTabContent(
                 OutlinedButton(
                     onClick = onValidate,
                     enabled = !isMutating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
                     modifier = Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = spacing.touchFloor),
                 ) {
-                    Text("VALIDATE", style = type.labelTelemetry, color = colors.signalCyan)
+                    Text("Validate", style = type.labelUi, color = colors.signalCyan)
                 }
                 Button(
                     onClick = onInstall,
                     enabled = !isMutating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = colors.signalCyan,
                         contentColor = colors.inkInverse,
@@ -796,7 +779,7 @@ private fun PluginsTabContent(
                         .weight(1f)
                         .defaultMinSize(minHeight = spacing.touchFloor),
                 ) {
-                    Text("INSTALL", style = type.labelTelemetry)
+                    Text("Install", style = type.labelUi)
                 }
             }
 
@@ -815,8 +798,8 @@ private fun PluginsTabContent(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
-                        text = if (validationResult.valid) "VALIDATION PASSED" else "VALIDATION FAILED",
-                        style = type.labelTelemetry,
+                        text = if (validationResult.valid) "Validation passed" else "Validation failed",
+                        style = type.labelSmallUi,
                         color = if (validationResult.valid) colors.signalEmerald else colors.signalCrimson,
                     )
                     val details = validationResult.errors.ifBlank { validationResult.report?.toString().orEmpty() }
@@ -833,14 +816,14 @@ private fun PluginsTabContent(
             }
 
             if (!installMessage.isNullOrBlank()) {
-                Text(installMessage, style = type.monoMicro, color = colors.signalEmerald)
+                Text(installMessage, style = type.bodyCompact, color = colors.signalEmerald)
             }
         }
 
-        Text("INSTALLED & BUILTIN PLUGINS (${plugins.size})", style = type.labelTelemetry, color = colors.inkSecondary)
+        Text("Installed plugins (${plugins.size})", style = type.titleBar, color = colors.inkPrimary)
 
         if (plugins.isEmpty()) {
-            Text("No plugins reported by `agy plugin list --json`.", style = type.bodyCompact, color = colors.inkMuted)
+            Text("No plugins installed on this host.", style = type.bodyCompact, color = colors.inkMuted)
         } else if (isExpanded && plugins.size > 1) {
             plugins.chunked(2).forEach { pair ->
                 Row(
@@ -900,7 +883,7 @@ private fun PluginCard(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Row(
@@ -908,7 +891,7 @@ private fun PluginCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(spacing.xs),
@@ -921,12 +904,11 @@ private fun PluginCard(
                     if (plugin.builtin) {
                         Box(
                             modifier = Modifier
-                                .clip(shapes.sm)
+                                .clip(shapes.pill)
                                 .background(colors.signalCyanDim)
-                                .border(spacing.hairlineWidth, colors.signalCyan, shapes.sm)
-                                .padding(horizontal = 5.dp, vertical = 2.dp),
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
                         ) {
-                            Text("BUILTIN", style = type.monoMicro, color = colors.signalCyan)
+                            Text("Built-in", style = type.labelSmallUi, color = colors.signalCyan)
                         }
                     }
                     if (!plugin.version.isNullOrBlank()) {
@@ -966,18 +948,18 @@ private fun PluginCard(
                 OutlinedButton(
                     onClick = { onRequestUninstall(plugin.name) },
                     enabled = !isMutating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                 ) {
-                    Text("UNINSTALL", style = type.labelTelemetry, color = colors.signalCrimson)
+                    Text("Uninstall", style = type.labelUi, color = colors.signalCrimson)
                 }
             }
         }
     }
 }
 
-// ── Tab 3: Agents & Workspace Allow-Rules ────────────────────────────────────
+// ── Tab 3: Agents & Project Permission Rules ─────────────────────────────────
 
 @Composable
 private fun AgentsAndRulesTabContent(
@@ -999,16 +981,16 @@ private fun AgentsAndRulesTabContent(
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(spacing.md),
+        verticalArrangement = Arrangement.spacedBy(spacing.lg),
     ) {
-        // Workspace Allow-Rules Safety Table (DIRECTION Section 8.3 & SPEC D7)
+        // Project Permission Rules Safety Card
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(shapes.md)
                 .background(colors.stratumBase)
                 .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-                .padding(spacing.md),
+                .padding(spacing.lg),
             verticalArrangement = Arrangement.spacedBy(spacing.sm),
         ) {
             Row(
@@ -1017,10 +999,10 @@ private fun AgentsAndRulesTabContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("WORKSPACE ALLOW-RULES", style = type.labelTelemetry, color = colors.signalAmber)
+                    Text("Project permission rules", style = type.titleBar, color = colors.inkPrimary)
                     Text(
-                        text = "${rules.size} active auto-approval rules",
-                        style = type.monoMicro,
+                        text = "${rules.size} saved auto-approval rule(s)",
+                        style = type.bodyCompact,
                         color = colors.inkSecondary,
                     )
                 }
@@ -1029,8 +1011,8 @@ private fun AgentsAndRulesTabContent(
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh allow-rules",
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = "Refresh permission rules",
                         tint = colors.inkSecondary,
                     )
                 }
@@ -1038,7 +1020,7 @@ private fun AgentsAndRulesTabContent(
 
             if (rules.isEmpty()) {
                 Text(
-                    text = "Zero persistent workspace allow-rules active on this host.",
+                    text = "No persistent project auto-allow rules active.",
                     style = type.bodyCompact,
                     color = colors.inkMuted,
                 )
@@ -1049,8 +1031,7 @@ private fun AgentsAndRulesTabContent(
                             .fillMaxWidth()
                             .clip(shapes.sm)
                             .background(colors.stratumRaised)
-                            .border(spacing.hairlineWidth, colors.hairline, shapes.sm)
-                            .padding(spacing.sm),
+                            .padding(spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
@@ -1064,17 +1045,19 @@ private fun AgentsAndRulesTabContent(
                                 text = rule.workspaceRoot,
                                 style = type.monoMicro,
                                 color = colors.inkSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                         Spacer(modifier = Modifier.width(spacing.sm))
                         OutlinedButton(
                             onClick = { onRevokeRule(rule.ruleId) },
                             enabled = !isMutating,
-                            shape = shapes.sm,
+                            shape = shapes.pill,
                             border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
-                            modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                            modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                         ) {
-                            Text("REVOKE", style = type.labelTelemetry, color = colors.signalCrimson)
+                            Text("Revoke", style = type.labelUi, color = colors.signalCrimson)
                         }
                     }
                 }
@@ -1087,25 +1070,25 @@ private fun AgentsAndRulesTabContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("CUSTOM AGENTS (${agents.size})", style = type.labelTelemetry, color = colors.inkSecondary)
+            Text("Custom agents (${agents.size})", style = type.titleBar, color = colors.inkPrimary)
             OutlinedButton(
                 onClick = onNewAgent,
-                shape = shapes.sm,
+                shape = shapes.pill,
                 border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
                 colors = ButtonDefaults.outlinedButtonColors(
                     containerColor = colors.signalCyanDim,
                     contentColor = colors.signalCyan,
                 ),
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
             ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(imageVector = Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(spacing.xs))
-                Text("NEW AGENT", style = type.labelTelemetry)
+                Text("New agent", style = type.labelUi)
             }
         }
 
         if (agents.isEmpty()) {
-            Text("No custom or host agents registered.", style = type.bodyCompact, color = colors.inkMuted)
+            Text("No custom agents registered on this host.", style = type.bodyCompact, color = colors.inkMuted)
         } else if (isExpanded && agents.size > 1) {
             agents.chunked(2).forEach { pair ->
                 Row(
@@ -1165,7 +1148,7 @@ private fun AgentCard(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Row(
@@ -1176,18 +1159,13 @@ private fun AgentCard(
             Text(agent.name, style = type.titleBar, color = colors.inkPrimary)
             Box(
                 modifier = Modifier
-                    .clip(shapes.sm)
+                    .clip(shapes.pill)
                     .background(if (agent.editable) colors.signalCyanDim else colors.stratumRaised)
-                    .border(
-                        spacing.hairlineWidth,
-                        if (agent.editable) colors.signalCyan else colors.hairlineStrong,
-                        shapes.sm,
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
             ) {
                 Text(
-                    text = if (agent.editable) "EDITABLE (${agent.source})" else "READ-ONLY (${agent.source})",
-                    style = type.monoMicro,
+                    text = if (agent.editable) "Editable" else "Read-only",
+                    style = type.labelSmallUi,
                     color = if (agent.editable) colors.signalCyan else colors.inkMuted,
                 )
             }
@@ -1212,27 +1190,27 @@ private fun AgentCard(
                 OutlinedButton(
                     onClick = { onEdit(agent) },
                     enabled = !isMutating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                 ) {
-                    Text("EDIT", style = type.labelTelemetry, color = colors.signalCyan)
+                    Text("Edit", style = type.labelUi, color = colors.signalCyan)
                 }
                 OutlinedButton(
                     onClick = { onDelete(agent.slug.ifBlank { agent.name }) },
                     enabled = !isMutating,
-                    shape = shapes.sm,
+                    shape = shapes.pill,
                     border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
-                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                 ) {
-                    Text("DELETE", style = type.labelTelemetry, color = colors.signalCrimson)
+                    Text("Delete", style = type.labelUi, color = colors.signalCrimson)
                 }
             }
         }
     }
 }
 
-// ── Tab 4: System (Allowlisted Settings, Keepalive, Default Model, Hosts) ───
+// ── Tab 4: System (Preferences, Notifications, Default Model, Hosts) ────────
 
 @Composable
 private fun SystemSettingsTabContent(
@@ -1270,11 +1248,13 @@ private fun SystemSettingsTabContent(
                 horizontalArrangement = Arrangement.spacedBy(spacing.md),
                 verticalAlignment = Alignment.Top,
             ) {
-                AllowlistedSettingsPanel(
-                    previewFeaturesEnabled = previewFeaturesEnabled,
-                    promptCompletionEnabled = promptCompletionEnabled,
+                DefaultModelPanel(
+                    availableModels = availableModels,
+                    defaultModelId = defaultModelId,
+                    gatewayDefaultModel = gatewayDefaultModel,
+                    gatewayDefaultThoughtLevel = gatewayDefaultThoughtLevel,
                     isMutating = isMutating,
-                    onToggleSetting = onToggleSetting,
+                    onSetDefaultModel = onSetDefaultModel,
                     modifier = Modifier.weight(1f),
                 )
                 KeepaliveAndNotificationsPanel(
@@ -1290,13 +1270,11 @@ private fun SystemSettingsTabContent(
                 horizontalArrangement = Arrangement.spacedBy(spacing.md),
                 verticalAlignment = Alignment.Top,
             ) {
-                DefaultModelPanel(
-                    availableModels = availableModels,
-                    defaultModelId = defaultModelId,
-                    gatewayDefaultModel = gatewayDefaultModel,
-                    gatewayDefaultThoughtLevel = gatewayDefaultThoughtLevel,
+                AllowlistedSettingsPanel(
+                    previewFeaturesEnabled = previewFeaturesEnabled,
+                    promptCompletionEnabled = promptCompletionEnabled,
                     isMutating = isMutating,
-                    onSetDefaultModel = onSetDefaultModel,
+                    onToggleSetting = onToggleSetting,
                     modifier = Modifier.weight(1f),
                 )
                 HostManagerPanel(
@@ -1315,18 +1293,6 @@ private fun SystemSettingsTabContent(
             modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(spacing.md),
         ) {
-            AllowlistedSettingsPanel(
-                previewFeaturesEnabled = previewFeaturesEnabled,
-                promptCompletionEnabled = promptCompletionEnabled,
-                isMutating = isMutating,
-                onToggleSetting = onToggleSetting,
-            )
-            KeepaliveAndNotificationsPanel(
-                keepaliveEnabled = keepaliveEnabled,
-                notificationPermissionGranted = notificationPermissionGranted,
-                onSetKeepalive = onSetKeepalive,
-                onOpenNotificationSettings = onOpenNotificationSettings,
-            )
             DefaultModelPanel(
                 availableModels = availableModels,
                 defaultModelId = defaultModelId,
@@ -1334,6 +1300,18 @@ private fun SystemSettingsTabContent(
                 gatewayDefaultThoughtLevel = gatewayDefaultThoughtLevel,
                 isMutating = isMutating,
                 onSetDefaultModel = onSetDefaultModel,
+            )
+            KeepaliveAndNotificationsPanel(
+                keepaliveEnabled = keepaliveEnabled,
+                notificationPermissionGranted = notificationPermissionGranted,
+                onSetKeepalive = onSetKeepalive,
+                onOpenNotificationSettings = onOpenNotificationSettings,
+            )
+            AllowlistedSettingsPanel(
+                previewFeaturesEnabled = previewFeaturesEnabled,
+                promptCompletionEnabled = promptCompletionEnabled,
+                isMutating = isMutating,
+                onToggleSetting = onToggleSetting,
             )
             HostManagerPanel(
                 hosts = hosts,
@@ -1366,14 +1344,14 @@ private fun AllowlistedSettingsPanel(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
-        Text("ALLOWLISTED SETTINGS.JSON", style = type.labelTelemetry, color = colors.signalCyan)
+        Text("Antigravity preferences", style = type.titleBar, color = colors.inkPrimary)
 
         SettingSwitchRow(
-            keyLabel = ControlDeckValidation.KEY_PREVIEW_FEATURES,
-            subtitle = "Enable experimental Antigravity preview features",
+            title = "Preview features",
+            subtitle = "Enable experimental features (${ControlDeckValidation.KEY_PREVIEW_FEATURES})",
             checked = previewFeaturesEnabled,
             enabled = !isMutating,
             onCheckedChange = { next ->
@@ -1384,8 +1362,8 @@ private fun AllowlistedSettingsPanel(
         HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
 
         SettingSwitchRow(
-            keyLabel = ControlDeckValidation.KEY_ENABLE_PROMPT_COMPLETION,
-            subtitle = "Enable inline CLI prompt completion suggestions",
+            title = "Prompt completion",
+            subtitle = "Show inline CLI prompt suggestions (${ControlDeckValidation.KEY_ENABLE_PROMPT_COMPLETION})",
             checked = promptCompletionEnabled,
             enabled = !isMutating,
             onCheckedChange = { next ->
@@ -1394,8 +1372,8 @@ private fun AllowlistedSettingsPanel(
         )
 
         Text(
-            text = "security.* and auth keys are host-locked and never exposed.",
-            style = type.monoMicro,
+            text = "Security and authentication keys stay locked on the host.",
+            style = type.labelSmallUi,
             color = colors.inkMuted,
         )
     }
@@ -1403,7 +1381,7 @@ private fun AllowlistedSettingsPanel(
 
 @Composable
 private fun SettingSwitchRow(
-    keyLabel: String,
+    title: String,
     subtitle: String,
     checked: Boolean,
     enabled: Boolean,
@@ -1421,8 +1399,8 @@ private fun SettingSwitchRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(keyLabel, style = type.monoCode, color = colors.inkPrimary)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = type.labelUi, color = colors.inkPrimary)
             Text(subtitle, style = type.bodyCompact, color = colors.inkSecondary)
         }
         Spacer(modifier = Modifier.width(spacing.sm))
@@ -1464,7 +1442,7 @@ private fun KeepaliveAndNotificationsPanel(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Row(
@@ -1472,29 +1450,24 @@ private fun KeepaliveAndNotificationsPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("BACKGROUND KEEPALIVE & NOTIFICATIONS", style = type.labelTelemetry, color = colors.signalCyan)
+            Text("Background alerts", style = type.titleBar, color = colors.inkPrimary)
             Box(
                 modifier = Modifier
-                    .clip(shapes.sm)
+                    .clip(shapes.pill)
                     .background(if (notificationPermissionGranted) colors.signalEmeraldDim else colors.signalAmberDim)
-                    .border(
-                        spacing.hairlineWidth,
-                        if (notificationPermissionGranted) colors.signalEmerald else colors.signalAmber,
-                        shapes.sm,
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
             ) {
                 Text(
-                    text = if (notificationPermissionGranted) "PERMISSION OK" else "PERMISSION OFF",
-                    style = type.monoMicro,
+                    text = if (notificationPermissionGranted) "Allowed" else "Off",
+                    style = type.labelSmallUi,
                     color = if (notificationPermissionGranted) colors.signalEmerald else colors.signalAmber,
                 )
             }
         }
 
         SettingSwitchRow(
-            keyLabel = "Background Keepalive (dataSync)",
-            subtitle = "Maintains watched session stream & background approval alerts; toggling off stops service and cancels notifications immediately",
+            title = "Keep connection alive",
+            subtitle = "Stay connected in the background for live approval alerts. Turning off stops background sync immediately.",
             checked = keepaliveEnabled,
             enabled = true,
             onCheckedChange = onSetKeepalive,
@@ -1502,22 +1475,22 @@ private fun KeepaliveAndNotificationsPanel(
 
         OutlinedButton(
             onClick = onOpenNotificationSettings,
-            shape = shapes.sm,
+            shape = shapes.pill,
             border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = spacing.touchFloor),
         ) {
             Icon(
-                imageVector = Icons.Default.Notifications,
+                imageVector = Icons.Rounded.Notifications,
                 contentDescription = null,
                 tint = colors.signalCyan,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(spacing.xs))
             Text(
-                text = "Open System Notification Settings",
-                style = type.labelTelemetry,
+                text = "System notification settings",
+                style = type.labelUi,
                 color = colors.inkPrimary,
             )
         }
@@ -1552,20 +1525,27 @@ private fun DefaultModelPanel(
     val activeFamily = gatewayDefaultModel ?: defaultModelId ?: families.firstOrNull().orEmpty()
     val activeThought = gatewayDefaultThoughtLevel ?: "high"
 
+    val thoughtOptions = listOf(
+        "low" to "Low",
+        "medium" to "Medium",
+        "high" to "High",
+        "xhigh" to "Max",
+    )
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
-        Text("GATEWAY DEFAULT MODEL", style = type.labelTelemetry, color = colors.inkSecondary)
+        Text("Default model", style = type.titleBar, color = colors.inkPrimary)
         Text(
-            text = "Applied to new sessions (`~/.config/gravity-well/gateway_prefs.json`).",
+            text = "Used automatically when starting new chats.",
             style = type.bodyCompact,
-            color = colors.inkMuted,
+            color = colors.inkSecondary,
         )
 
         families.take(6).forEach { fam ->
@@ -1587,12 +1567,12 @@ private fun DefaultModelPanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = fam,
-                    style = type.monoCode,
+                    text = formatModelDisplayName(fam),
+                    style = type.bodyCompact,
                     color = if (selected) colors.signalCyan else colors.inkPrimary,
                 )
                 if (selected) {
-                    Text("ACTIVE", style = type.monoMicro, color = colors.signalCyan)
+                    Text("Default", style = type.labelSmallUi, color = colors.signalCyan)
                 }
             }
         }
@@ -1600,15 +1580,18 @@ private fun DefaultModelPanel(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(shapes.sm)
-                .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.sm),
+                .clip(shapes.pill)
+                .background(colors.stratumRaised)
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            listOf("low", "medium", "high", "xhigh").forEach { lvl ->
+            thoughtOptions.forEach { (lvl, label) ->
                 val selected = activeThought.lowercase() == lvl
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .defaultMinSize(minHeight = spacing.touchFloor)
+                        .defaultMinSize(minHeight = 40.dp)
+                        .clip(shapes.pill)
                         .background(if (selected) colors.signalCyanDim else colors.stratumRaised)
                         .clickable(enabled = !isMutating && activeFamily.isNotBlank()) {
                             onSetDefaultModel(activeFamily, lvl)
@@ -1616,8 +1599,8 @@ private fun DefaultModelPanel(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = lvl.uppercase(),
-                        style = type.labelTelemetry,
+                        text = label,
+                        style = type.labelSmallUi,
                         color = if (selected) colors.signalCyan else colors.inkSecondary,
                     )
                 }
@@ -1647,7 +1630,7 @@ private fun HostManagerPanel(
             .clip(shapes.md)
             .background(colors.stratumBase)
             .border(spacing.hairlineWidth, colors.hairline, shapes.md)
-            .padding(spacing.md),
+            .padding(spacing.lg),
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Row(
@@ -1655,16 +1638,16 @@ private fun HostManagerPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("HOST MANAGER (${hosts.size})", style = type.labelTelemetry, color = colors.inkSecondary)
+            Text("Connected hosts (${hosts.size})", style = type.titleBar, color = colors.inkPrimary)
             OutlinedButton(
                 onClick = onAddNewHost,
-                shape = shapes.sm,
+                shape = shapes.pill,
                 border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
             ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(imageVector = Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(spacing.xs))
-                Text("ADD HOST", style = type.labelTelemetry, color = colors.signalCyan)
+                Text("Add host", style = type.labelUi, color = colors.signalCyan)
             }
         }
 
@@ -1680,8 +1663,8 @@ private fun HostManagerPanel(
                         if (isActive) colors.signalCyan else colors.hairline,
                         shapes.sm,
                     )
-                    .padding(spacing.sm),
-                verticalArrangement = Arrangement.spacedBy(spacing.xs),
+                    .padding(spacing.md),
+                verticalArrangement = Arrangement.spacedBy(spacing.sm),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1690,8 +1673,8 @@ private fun HostManagerPanel(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "${host.label} · agy v${host.agyVersion ?: "unknown"}",
-                            style = type.titleBar,
+                            text = "${host.label} · v${host.agyVersion ?: "unknown"}",
+                            style = type.labelUi,
                             color = colors.inkPrimary,
                         )
                         Text(
@@ -1703,7 +1686,14 @@ private fun HostManagerPanel(
                         )
                     }
                     if (isActive) {
-                        Text("ACTIVE", style = type.labelTelemetry, color = colors.signalEmerald)
+                        Box(
+                            modifier = Modifier
+                                .clip(shapes.pill)
+                                .background(colors.signalEmeraldDim)
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        ) {
+                            Text("Active", style = type.labelSmallUi, color = colors.signalEmerald)
+                        }
                     }
                 }
 
@@ -1714,28 +1704,31 @@ private fun HostManagerPanel(
                     if (!isActive) {
                         OutlinedButton(
                             onClick = { onSelectHost(host.hostId) },
-                            shape = shapes.sm,
+                            shape = shapes.pill,
                             border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
-                            modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                         ) {
-                            Text("SWITCH", style = type.labelTelemetry, color = colors.signalCyan)
+                            Text("Switch", style = type.labelSmallUi, color = colors.signalCyan)
                         }
                     }
                     OutlinedButton(
                         onClick = { onReverifyHost(host) },
-                        shape = shapes.sm,
+                        shape = shapes.pill,
                         border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
-                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                     ) {
-                        Text("RE-VERIFY", style = type.labelTelemetry, color = colors.inkPrimary)
+                        Text("Re-verify", style = type.labelSmallUi, color = colors.inkPrimary)
                     }
                     OutlinedButton(
                         onClick = { onRequestDeleteHost(host.hostId) },
-                        shape = shapes.sm,
+                        shape = shapes.pill,
                         border = BorderStroke(spacing.hairlineWidth, colors.signalCrimson),
-                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
                     ) {
-                        Text("REMOVE", style = type.labelTelemetry, color = colors.signalCrimson)
+                        Text("Remove", style = type.labelSmallUi, color = colors.signalCrimson)
                     }
                 }
             }

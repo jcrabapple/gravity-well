@@ -7,44 +7,44 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 /**
- * Vernier Rig color palette (docs/creative/DIRECTION-gravity-well.md).
+ * Gravity Well modern dark chat palette (docs/creative/DIRECTION-gravity-well.md).
  * Literal Color(0x...) declarations live exclusively in this file.
  */
 object GravityWellPalette {
-    val ChassisVoid = Color(0xFF0B0D10)
-    val StratumBase = Color(0xFF101318)
-    val StratumRaised = Color(0xFF161B22)
-    val StratumUser = Color(0xFF171D26)
-    val StratumWell = Color(0xFF080A0D)
+    val ChassisVoid = Color(0xFF0E1117)
+    val StratumBase = Color(0xFF151A23)
+    val StratumRaised = Color(0xFF1E2533)
+    val StratumUser = Color(0xFF1C3554)
+    val StratumWell = Color(0xFF0B0E14)
 
-    val Hairline = Color(0xFF242B36)
-    val HairlineStrong = Color(0xFF343E4F)
+    val Hairline = Color(0xFF252D3D)
+    val HairlineStrong = Color(0xFF364257)
 
-    val InkPrimary = Color(0xFFE6EDF3)
-    val InkSecondary = Color(0xFF9BA7B8)
-    val InkMuted = Color(0xFF657183)
-    val InkInverse = Color(0xFF0B0D10)
+    val InkPrimary = Color(0xFFEDF2F7)
+    val InkSecondary = Color(0xFF9BA7BA)
+    val InkMuted = Color(0xFF6E7B90)
+    val InkInverse = Color(0xFF0B0E14)
 
     val SignalCyan = Color(0xFF38BDF8)
-    val SignalCyanDim = Color(0xFF122634)
+    val SignalCyanDim = Color(0xFF13293D)
     val SignalAmber = Color(0xFFF59E0B)
-    val SignalAmberDim = Color(0xFF2A1F0D)
+    val SignalAmberDim = Color(0xFF2E220F)
     val SignalEmerald = Color(0xFF34D399)
-    val SignalEmeraldDim = Color(0xFF112A22)
+    val SignalEmeraldDim = Color(0xFF112C23)
     val SignalCrimson = Color(0xFFF87171)
-    val SignalCrimsonDim = Color(0xFF33171B)
+    val SignalCrimsonDim = Color(0xFF35191F)
     val SignalViolet = Color(0xFFA78BFA)
-    val SignalVioletDim = Color(0xFF1F1933)
+    val SignalVioletDim = Color(0xFF241C3A)
 
-    val DiffAddBg = Color(0xFF112A22)
-    val DiffAddWordBg = Color(0xFF1B4737)
+    val DiffAddBg = Color(0xFF112C23)
+    val DiffAddWordBg = Color(0xFF1D4D3C)
     val DiffAddInk = Color(0xFF34D399)
-    val DiffDelBg = Color(0xFF33171B)
-    val DiffDelWordBg = Color(0xFF542128)
+    val DiffDelBg = Color(0xFF35191F)
+    val DiffDelWordBg = Color(0xFF5A232B)
     val DiffDelInk = Color(0xFFF87171)
-    val DiffHunkBg = Color(0xFF141A24)
+    val DiffHunkBg = Color(0xFF161D29)
 
-    val ScrimOverlay = Color(0xCC050709)
+    val ScrimOverlay = Color(0xCC07090D)
 }
 
 @Immutable
