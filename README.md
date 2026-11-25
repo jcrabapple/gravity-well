@@ -141,7 +141,11 @@ cd android
 
 ## Sanctioned Antigravity Integration Posture
 
-Gravity Well interacts exclusively with the official `agy` CLI binary via `agy acp --stdio` (Agent Client Protocol JSON-RPC 2.0) and documented CLI subcommands (`models`, `agents`, `mcp`, `plugin`, `remote-control`, `update`, `-p /usage --output-format json`), plus read-only (`?mode=ro`) inspection of `~/.gemini/antigravity-cli/` conversation summaries, brain artifacts, logs, and presence markers. Child processes run with `shell=False` and a scrubbed allowlisted environment (`ANTIGRAVITY_ENV_STRICT=1`). It never reads, extracts, or proxies Google OAuth credentials.
+Gravity Well interacts exclusively with the official unmodified `agy` CLI binary via `agy acp --stdio` (Agent Client Protocol JSON-RPC 2.0) and documented CLI subcommands (`models`, `agents`, `mcp`, `plugin`, `remote-control`, `update`, `-p /usage --output-format json`), plus read-only (`?mode=ro`) inspection of `~/.gemini/antigravity-cli/` conversation summaries, brain artifacts, logs, and presence markers. Child processes run with `shell=False` and a scrubbed allowlisted environment (`ANTIGRAVITY_ENV_STRICT=1`). It never reads, extracts, or proxies Google OAuth credentials or calls private backend APIs directly.
+
+### Intended Use (Personal Single-User Thin Client)
+
+Gravity Well is intended strictly as a **single-user personal thin client** for interactively driving your own local `agy acp` sessions (for example, from your phone over a private Tailscale tailnet). Do not expose or host the gateway as a multi-user web service, share/pool personal Antigravity accounts across users, or use it to run unattended automated agent loops—always review and follow Google Antigravity's Terms of Service for your account tier.
 
 ## Documentation
 
