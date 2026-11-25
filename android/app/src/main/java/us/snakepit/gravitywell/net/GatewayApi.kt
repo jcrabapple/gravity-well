@@ -65,6 +65,12 @@ interface GatewayApi {
         @Path("sessionId") sessionId: String,
     ): DeleteSessionResponse
 
+    @DELETE("api/sessions/{sessionId}")
+    suspend fun deleteSessionPermanently(
+        @Path("sessionId") sessionId: String,
+        @Query("permanent") permanent: Boolean = true,
+    ): DeleteSessionResponse
+
     @POST("api/sessions/{sessionId}/prompt")
     suspend fun submitPrompt(
         @Path("sessionId") sessionId: String,

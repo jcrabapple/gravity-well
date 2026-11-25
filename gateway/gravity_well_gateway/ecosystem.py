@@ -23,6 +23,7 @@ from .config import (
     is_subpath,
     read_json_file,
 )
+from .mcp_oauth import McpOAuthManager
 from .redaction import REDACTED, redact_text
 from .supervisor import SessionSupervisor
 
@@ -64,6 +65,19 @@ class CreateMcpRequest(BaseModel):
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     headers: dict[str, str] = Field(default_factory=dict)
+    oauth_client_id: str | None = None
+    oauth_client_secret: str | None = None
+
+
+class StartMcpOAuthRequest(BaseModel):
+    client_id: str | None = None
+    client_secret: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+
+
+class CompleteMcpOAuthRequest(BaseModel):
+    flow_id: str
+    code: str
 
 
 class ValidatePluginRequest(BaseModel):
@@ -255,6 +269,7 @@ class EcosystemManager:
     def __init__(self, config: GatewayConfig, supervisor: SessionSupervisor) -> None:
         self._config = config
         self._supervisor = supervisor
+        self.oauth = McpOAuthManager(config)
 
     @property
     def gateway_prefs_path(self) -> Path:
@@ -505,6 +520,11 @@ class EcosystemManager:
                 "headers": masked_hdrs,
                 "env_keys": sorted(masked_env.keys()),
                 "header_keys": sorted(masked_hdrs.keys()),
+                "oauth_status": (
+                    self.oauth.get_server_oauth_status(name, entry)
+                    if srv_type == "http"
+                    else None
+                ),
             }
         return out
 
@@ -590,6 +610,12 @@ class EcosystemManager:
                 "acp_upstream_error",
                 redact_text((stderr or stdout or "agy mcp add failed").strip()),
             )
+        if srv_type == "http" and req.oauth_client_id and req.oauth_client_id.strip():
+            self.oauth.save_manual_oauth_credentials(
+                safe_name,
+                client_id=req.oauth_client_id,
+                client_secret=req.oauth_client_secret,
+            )
         cfg_map = self._read_masked_mcp_config()
         return cfg_map.get(
             safe_name,
@@ -605,8 +631,47 @@ class EcosystemManager:
                 "headers": {k: REDACTED for k in sorted(req.headers.keys())},
                 "env_keys": sorted(req.env.keys()),
                 "header_keys": sorted(req.headers.keys()),
+                "oauth_status": (
+                    self.oauth.get_server_oauth_status(safe_name)
+                    if srv_type == "http"
+                    else None
+                ),
             },
         )
+
+    async def start_mcp_oauth(
+        self,
+        name: str,
+        req: StartMcpOAuthRequest | None = None,
+    ) -> dict[str, Any]:
+        safe_name = _validate_flag_safe_name(name, pattern=MCP_NAME_RE, label="MCP server name")
+        body = req or StartMcpOAuthRequest()
+        return await self.oauth.start_oauth(
+            safe_name,
+            client_id=body.client_id,
+            client_secret=body.client_secret,
+            scopes=body.scopes,
+        )
+
+    async def complete_mcp_oauth(
+        self,
+        name: str,
+        req: CompleteMcpOAuthRequest,
+    ) -> dict[str, Any]:
+        safe_name = _validate_flag_safe_name(name, pattern=MCP_NAME_RE, label="MCP server name")
+        return await self.oauth.complete_oauth(
+            safe_name,
+            flow_id=req.flow_id,
+            code=req.code,
+        )
+
+    async def refresh_mcp_oauth(self, name: str) -> dict[str, Any]:
+        safe_name = _validate_flag_safe_name(name, pattern=MCP_NAME_RE, label="MCP server name")
+        return await self.oauth.refresh_oauth(safe_name)
+
+    def sign_out_mcp_oauth(self, name: str) -> dict[str, Any]:
+        safe_name = _validate_flag_safe_name(name, pattern=MCP_NAME_RE, label="MCP server name")
+        return self.oauth.sign_out_oauth(safe_name)
 
     async def set_mcp_enabled(self, name: str, *, enabled: bool) -> dict[str, Any]:
         safe_name = _validate_flag_safe_name(name, pattern=MCP_NAME_RE, label="MCP server name")
@@ -929,7 +994,37 @@ def create_ecosystem_router() -> APIRouter:
     @router.delete("/mcp/{name}")
     async def remove_mcp_server(request: Request, name: str) -> dict[str, Any]:
         eco: EcosystemManager = request.app.state.ecosystem
-        return await eco.remove_mcp_server(name=name)
+        res = await eco.remove_mcp_server(name=name)
+        eco.sign_out_mcp_oauth(name)
+        return res
+
+    @router.post("/mcp/{name}/oauth/start")
+    async def start_mcp_oauth(
+        request: Request,
+        name: str,
+        body: StartMcpOAuthRequest | None = None,
+    ) -> dict[str, Any]:
+        eco: EcosystemManager = request.app.state.ecosystem
+        return await eco.start_mcp_oauth(name=name, req=body)
+
+    @router.post("/mcp/{name}/oauth/complete")
+    async def complete_mcp_oauth(
+        request: Request,
+        name: str,
+        body: CompleteMcpOAuthRequest,
+    ) -> dict[str, Any]:
+        eco: EcosystemManager = request.app.state.ecosystem
+        return await eco.complete_mcp_oauth(name=name, req=body)
+
+    @router.post("/mcp/{name}/oauth/refresh")
+    async def refresh_mcp_oauth(request: Request, name: str) -> dict[str, Any]:
+        eco: EcosystemManager = request.app.state.ecosystem
+        return await eco.refresh_mcp_oauth(name=name)
+
+    @router.delete("/mcp/{name}/oauth")
+    async def sign_out_mcp_oauth(request: Request, name: str) -> dict[str, Any]:
+        eco: EcosystemManager = request.app.state.ecosystem
+        return eco.sign_out_mcp_oauth(name=name)
 
     @router.get("/plugins")
     async def list_plugins(request: Request) -> dict[str, Any]:

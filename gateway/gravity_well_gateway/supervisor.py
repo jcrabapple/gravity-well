@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 import re
 import secrets
@@ -284,6 +285,9 @@ class LiveSession:
     turn_task: asyncio.Task[None] | None = None
     ready_for_events: bool = False
     early_updates: list[dict[str, Any]] = field(default_factory=list)
+    pinned: bool = False
+    pinned_at: str | None = None
+    archived: bool = False
     updated_at: str = field(default_factory=utc_now_iso)
 
     def renumber_queue(self) -> None:
@@ -299,6 +303,9 @@ class LiveSession:
             "add_dirs": list(self.add_dirs),
             "status": self.status,
             "is_live": self.acp.is_running and self.status not in ("closed", "archived", "error"),
+            "pinned": self.pinned,
+            "pinned_at": self.pinned_at,
+            "archived": self.archived,
             "agent": self.agent,
             "sandbox": self.sandbox,
             "config_options": list(self.config_options),
@@ -321,6 +328,9 @@ class LiveSession:
             "cwd": self.cwd,
             "is_live": self.acp.is_running and self.status not in ("closed", "archived", "error"),
             "status": self.status,
+            "pinned": self.pinned,
+            "pinned_at": self.pinned_at,
+            "archived": self.archived,
             "step_count": self.step_count,
             "model_id": _extract_config_val(self.config_options, "model"),
             "thought_level": _extract_config_val(self.config_options, "thought_level"),
@@ -962,6 +972,8 @@ class SessionSupervisor:
 
         archived = self._storage.get_archived_conversation(session_id)
         meta = self._storage.get_session_meta(session_id)
+        if meta and meta.get("deleted"):
+            raise GatewayError(404, "not_found", f"Session was deleted: {session_id}")
         resolved_cwd_input = (
             cwd
             or (meta.get("cwd") if meta and meta.get("cwd") else None)
@@ -999,6 +1011,8 @@ class SessionSupervisor:
             or "Resumed Conversation"
         )
         initial_title_source = "gateway" if (meta and meta.get("title")) else "acp"
+        initial_pinned = bool(meta.get("pinned", False)) if meta else False
+        initial_pinned_at = str(meta["pinned_at"]) if meta and meta.get("pinned_at") else None
 
         live = LiveSession(
             session_id=session_id,
@@ -1013,6 +1027,9 @@ class SessionSupervisor:
             queue=carried_queue,
             queue_paused=bool(carried_queue),
             ready_for_events=True,
+            pinned=initial_pinned,
+            pinned_at=initial_pinned_at,
+            archived=False,
         )
         holder["session"] = live
 
@@ -1026,6 +1043,8 @@ class SessionSupervisor:
             await self._initialize_acp(acp)
             res = await acp.request(acp_method, acp_params, timeout=60.0)
             self._apply_acp_session_metadata(live, res)
+            if meta and meta.get("archived"):
+                self._storage.update_session_meta(session_id, archived=False, cwd=real_cwd)
             live.status = "idle"
             self._sessions[session_id] = live
             self._emit_session_event(
@@ -1121,11 +1140,13 @@ class SessionSupervisor:
         live = self._sessions.get(session_id)
         archived = None if live is not None else self._storage.get_archived_conversation(session_id)
         existing_meta = self._storage.get_session_meta(session_id)
-        if live is None and archived is None and existing_meta is None:
+        if (existing_meta and existing_meta.get("deleted")) or (
+            live is None and archived is None and existing_meta is None
+        ):
             raise GatewayError(404, "not_found", f"Unknown session: {session_id}")
 
         cwd = live.cwd if live is not None else (archived["cwd"] if archived else None)
-        self._storage.set_title_override(session_id, trimmed, cwd=cwd)
+        self._storage.update_session_meta(session_id, title=trimmed, cwd=cwd)
 
         if live is not None:
             live.title = trimmed
@@ -1133,7 +1154,12 @@ class SessionSupervisor:
             self._emit_session_event(
                 live,
                 "session_info_update",
-                {"title": trimmed, "title_source": "gateway"},
+                {
+                    "title": trimmed,
+                    "title_source": "gateway",
+                    "pinned": live.pinned,
+                    "archived": live.archived,
+                },
             )
             return live.to_snapshot(self._replay)
 
@@ -1143,6 +1169,122 @@ class SessionSupervisor:
             {"title": trimmed, "title_source": "gateway"},
         )
         return self.get_session(session_id)
+
+    async def update_session(
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+        pinned: bool | None = None,
+        archived: bool | None = None,
+    ) -> dict[str, Any]:
+        """Update session title, pin state, and/or archive state."""
+        validate_session_id(session_id)
+        if title is None and pinned is None and archived is None:
+            raise GatewayError(400, "bad_request", "At least one of title, pinned, or archived must be provided.")
+
+        trimmed_title: str | None = None
+        if title is not None:
+            trimmed_title = title.strip()
+            if not trimmed_title or len(trimmed_title) > 120:
+                raise GatewayError(
+                    422,
+                    "validation_error",
+                    "Title must be between 1 and 120 non-whitespace characters.",
+                )
+
+        live = self._sessions.get(session_id)
+        arch_row = None if live is not None else self._storage.get_archived_conversation(session_id)
+        existing_meta = self._storage.get_session_meta(session_id)
+        if (existing_meta and existing_meta.get("deleted")) or (
+            live is None and arch_row is None and existing_meta is None
+        ):
+            raise GatewayError(404, "not_found", f"Unknown session: {session_id}")
+
+        cwd = (
+            live.cwd
+            if live is not None
+            else (
+                arch_row["cwd"]
+                if arch_row
+                else (existing_meta.get("cwd") if existing_meta else None)
+            )
+        )
+        effective_title = trimmed_title
+        if effective_title is None and live is not None and not (existing_meta and existing_meta.get("title")):
+            effective_title = live.title
+
+        # Archiving a live session gracefully tears down its ACP subprocess
+        if archived is True and live is not None:
+            await self.close_session(session_id)
+            live = None
+
+        updated_meta = self._storage.update_session_meta(
+            session_id,
+            title=effective_title if (trimmed_title is not None or (archived is True and effective_title)) else None,
+            cwd=cwd,
+            pinned=pinned,
+            archived=archived,
+        )
+
+        if live is not None:
+            if trimmed_title is not None:
+                live.title = trimmed_title
+                live.title_source = "gateway"
+            if pinned is not None:
+                live.pinned = bool(pinned)
+                live.pinned_at = updated_meta.get("pinned_at")
+            if archived is not None:
+                live.archived = bool(archived)
+            self._emit_session_event(
+                live,
+                "session_info_update",
+                {
+                    "title": live.title,
+                    "title_source": live.title_source,
+                    "pinned": live.pinned,
+                    "pinned_at": live.pinned_at,
+                    "archived": live.archived,
+                },
+            )
+            return live.to_snapshot(self._replay)
+
+        snap = self.get_session(session_id)
+        self._replay.emit(
+            session_id,
+            "session_info_update",
+            {
+                "title": snap["title"],
+                "title_source": snap["title_source"],
+                "pinned": snap["pinned"],
+                "pinned_at": snap["pinned_at"],
+                "archived": snap["archived"],
+            },
+        )
+        return snap
+
+    async def delete_session(self, session_id: str) -> dict[str, Any]:
+        """Permanently delete/tombstone a live or archived session in Gravity Well."""
+        validate_session_id(session_id)
+        live = self._sessions.get(session_id)
+        arch_row = None if live is not None else self._storage.get_archived_conversation(session_id)
+        existing_meta = self._storage.get_session_meta(session_id)
+        if (existing_meta and existing_meta.get("deleted")) or (
+            live is None and arch_row is None and existing_meta is None
+        ):
+            raise GatewayError(404, "not_found", f"Session not found: {session_id}")
+
+        if live is not None:
+            await self.close_session(session_id)
+
+        self._storage.update_session_meta(session_id, deleted=True)
+        self._storage.delete_session_uploads(session_id)
+        self._replay.emit(
+            session_id,
+            "session_deleted",
+            {"session_id": session_id, "deleted": True},
+        )
+        return {"session_id": session_id, "status": "deleted", "deleted": True}
 
     async def update_session_config(
         self,
@@ -1224,7 +1366,7 @@ class SessionSupervisor:
 
         archived = self._storage.get_archived_conversation(session_id)
         meta = self._storage.get_session_meta(session_id)
-        if archived is None and meta is None:
+        if (meta and meta.get("deleted")) or (archived is None and meta is None):
             raise GatewayError(404, "not_found", f"Session not found: {session_id}")
 
         title = (
@@ -1240,6 +1382,9 @@ class SessionSupervisor:
             (str(archived["last_modified_time"]) if archived and archived.get("last_modified_time") else None)
             or (str(meta["updated_at"]) if meta and meta.get("updated_at") else utc_now_iso())
         )
+        is_pinned = bool(meta.get("pinned", False)) if meta else False
+        pinned_at = str(meta["pinned_at"]) if meta and meta.get("pinned_at") else None
+        is_archived = bool(meta.get("archived", False)) if meta else False
         return {
             "session_id": session_id,
             "title": title,
@@ -1248,6 +1393,9 @@ class SessionSupervisor:
             "add_dirs": [],
             "status": "archived",
             "is_live": False,
+            "pinned": is_pinned,
+            "pinned_at": pinned_at,
+            "archived": is_archived,
             "agent": None,
             "sandbox": False,
             "config_options": self.get_default_config_options(),
@@ -1281,10 +1429,16 @@ class SessionSupervisor:
 
         merged: list[dict[str, Any]] = []
         live_ids: set[str] = set()
+        seen_ids: set[str] = set()
+        all_meta = self._storage.get_title_overrides()
 
         if status in ("all", "live"):
             for sid, sess in self._sessions.items():
+                meta = all_meta.get(sid) if isinstance(all_meta.get(sid), dict) else None
+                if meta and meta.get("deleted"):
+                    continue
                 live_ids.add(sid)
+                seen_ids.add(sid)
                 if cwd_real and sess.cwd != cwd_real:
                     continue
                 if q_lower:
@@ -1306,6 +1460,10 @@ class SessionSupervisor:
                 cid = str(row["conversation_id"])
                 if cid in live_ids:
                     continue
+                explicit_archived = bool(row.get("explicit_archived", False))
+                if status == "all" and explicit_archived:
+                    continue
+                seen_ids.add(cid)
                 ws_paths = row.get("workspace_paths") or []
                 merged.append(
                     {
@@ -1315,6 +1473,9 @@ class SessionSupervisor:
                         "cwd": ws_paths[0] if ws_paths else str(self._config.default_cwd),
                         "is_live": False,
                         "status": "archived",
+                        "pinned": bool(row.get("pinned", False)),
+                        "pinned_at": row.get("pinned_at"),
+                        "archived": explicit_archived,
                         "step_count": int(row.get("step_count") or 0),
                         "model_id": None,
                         "thought_level": None,
@@ -1323,7 +1484,48 @@ class SessionSupervisor:
                     }
                 )
 
-        merged.sort(key=lambda item: (1 if item["is_live"] else 0, item["updated_at"]), reverse=True)
+            # Also include explicitly archived sessions tracked only in session_meta.json
+            if status == "archived":
+                for cid, meta in all_meta.items():
+                    if cid in live_ids or cid in seen_ids or not isinstance(meta, dict):
+                        continue
+                    if meta.get("deleted") or not meta.get("archived"):
+                        continue
+                    meta_cwd = str(meta.get("cwd") or self._config.default_cwd)
+                    if cwd_real and os.path.realpath(meta_cwd) != cwd_real:
+                        continue
+                    meta_title = str(meta.get("title") or "Archived Conversation")
+                    if q_lower and q_lower not in f"{meta_title}\n{meta_cwd}".lower():
+                        continue
+                    seen_ids.add(cid)
+                    merged.append(
+                        {
+                            "session_id": cid,
+                            "title": meta_title,
+                            "preview": "",
+                            "cwd": meta_cwd,
+                            "is_live": False,
+                            "status": "archived",
+                            "pinned": bool(meta.get("pinned", False)),
+                            "pinned_at": meta.get("pinned_at"),
+                            "archived": True,
+                            "step_count": 0,
+                            "model_id": None,
+                            "thought_level": None,
+                            "mode_id": None,
+                            "updated_at": str(meta.get("updated_at") or ""),
+                        }
+                    )
+
+        merged.sort(
+            key=lambda item: (
+                1 if item.get("pinned") else 0,
+                str(item.get("pinned_at") or ""),
+                1 if item["is_live"] else 0,
+                item["updated_at"],
+            ),
+            reverse=True,
+        )
         total = len(merged)
         return {
             "items": merged[clamped_offset : clamped_offset + clamped_limit],

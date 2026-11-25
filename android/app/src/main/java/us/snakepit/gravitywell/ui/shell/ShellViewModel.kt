@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -388,6 +389,13 @@ class ShellController(
 
     private fun persistBackgroundSessionEvent(host: CachedHost, frame: WsServerFrame.Event) {
         val sid = frame.sessionId ?: return
+        if (frame.type == "session_deleted") {
+            cacheStore.deleteSession(host.hostId, sid)
+            if (_state.value.attachedSessionId == sid) {
+                detachActiveConsoleSession()
+            }
+            return
+        }
         val activeConsoleSid = _state.value.attachedSessionId
         if (sid == activeConsoleSid && _sessionConsoleController.value != null) {
             return
@@ -410,6 +418,21 @@ class ShellController(
         } else {
             existing?.titleSource ?: "acp"
         }
+        val updatedPinned = if (frame.type == "session_info_update") {
+            frame.payload["pinned"]?.jsonPrimitive?.booleanOrNull ?: existing?.isPinned ?: false
+        } else {
+            existing?.isPinned ?: false
+        }
+        val updatedPinnedAt = if (frame.type == "session_info_update") {
+            frame.payload["pinned_at"]?.jsonPrimitive?.contentOrNull ?: if (updatedPinned) existing?.pinnedAt else null
+        } else {
+            existing?.pinnedAt
+        }
+        val updatedArchived = if (frame.type == "session_info_update") {
+            frame.payload["archived"]?.jsonPrimitive?.booleanOrNull ?: existing?.isArchived ?: false
+        } else {
+            existing?.isArchived ?: false
+        }
         cacheStore.upsertSession(
             (existing ?: CachedSession(
                 hostId = host.hostId,
@@ -419,12 +442,18 @@ class ShellController(
                 cwd = host.defaultCwd.orEmpty(),
                 status = updatedStatus,
                 isLive = updatedStatus != "closed",
+                isPinned = updatedPinned,
+                pinnedAt = updatedPinnedAt,
+                isArchived = updatedArchived,
                 updatedAt = frame.ts.ifBlank { Instant.now().toString() },
             )).copy(
                 title = updatedTitle,
                 titleSource = updatedSource,
                 status = updatedStatus,
                 isLive = updatedStatus != "closed" && updatedStatus != "archived",
+                isPinned = updatedPinned,
+                pinnedAt = updatedPinnedAt,
+                isArchived = updatedArchived,
                 lastCursor = maxOf(existing?.lastCursor ?: 0L, frame.cursor),
                 lastSeq = maxOf(existing?.lastSeq ?: 0L, frame.seq),
                 updatedAt = frame.ts.ifBlank { existing?.updatedAt ?: Instant.now().toString() },

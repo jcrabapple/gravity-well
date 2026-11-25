@@ -126,6 +126,9 @@ class OfflineCacheStore(
                 put("add_dirs_json", session.addDirsJson)
                 put("status", session.status)
                 put("is_live", if (session.isLive) 1 else 0)
+                put("is_pinned", if (session.isPinned) 1 else 0)
+                put("pinned_at", session.pinnedAt)
+                put("is_archived", if (session.isArchived) 1 else 0)
                 put("model_id", session.modelId)
                 put("thought_level", session.thoughtLevel)
                 put("mode_id", session.modeId)
@@ -166,11 +169,11 @@ class OfflineCacheStore(
     fun listSessions(hostId: String, isLiveFilter: Boolean? = null): List<CachedSession> {
         val db = dbHelper.readableDatabase
         val (sql, args) = when (isLiveFilter) {
-            null -> "SELECT * FROM sessions WHERE host_id = ? ORDER BY is_live DESC, updated_at DESC" to
+            null -> "SELECT * FROM sessions WHERE host_id = ? AND is_archived = 0 ORDER BY is_pinned DESC, COALESCE(pinned_at, '') DESC, is_live DESC, updated_at DESC" to
                 arrayOf(hostId)
-            true -> "SELECT * FROM sessions WHERE host_id = ? AND is_live = 1 ORDER BY updated_at DESC" to
+            true -> "SELECT * FROM sessions WHERE host_id = ? AND is_live = 1 AND is_archived = 0 ORDER BY is_pinned DESC, COALESCE(pinned_at, '') DESC, updated_at DESC" to
                 arrayOf(hostId)
-            false -> "SELECT * FROM sessions WHERE host_id = ? AND is_live = 0 ORDER BY updated_at DESC" to
+            false -> "SELECT * FROM sessions WHERE host_id = ? AND (is_live = 0 OR is_archived = 1) ORDER BY is_pinned DESC, COALESCE(pinned_at, '') DESC, updated_at DESC" to
                 arrayOf(hostId)
         }
         val out = mutableListOf<CachedSession>()
@@ -471,6 +474,9 @@ private fun Cursor.toCachedSession(): CachedSession = CachedSession(
     addDirsJson = str("add_dirs_json"),
     status = str("status"),
     isLive = integer("is_live") != 0,
+    isPinned = integer("is_pinned") != 0,
+    pinnedAt = strOrNull("pinned_at"),
+    isArchived = integer("is_archived") != 0,
     modelId = strOrNull("model_id"),
     thoughtLevel = strOrNull("thought_level"),
     modeId = strOrNull("mode_id"),

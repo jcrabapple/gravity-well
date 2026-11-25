@@ -176,6 +176,11 @@ fun GravityWellAdaptiveShell(
                                         controller = bCtrl,
                                         selectedSessionId = shellState.attachedSessionId,
                                         onOpenSession = controller::openSessionInConsole,
+                                        onSessionDeleted = { deletedId ->
+                                            if (shellState.attachedSessionId == deletedId) {
+                                                controller.detachActiveConsoleSession()
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -203,6 +208,11 @@ fun GravityWellAdaptiveShell(
                                         controller = bCtrl,
                                         selectedSessionId = shellState.attachedSessionId,
                                         onOpenSession = controller::openSessionInConsole,
+                                        onSessionDeleted = { deletedId ->
+                                            if (shellState.attachedSessionId == deletedId) {
+                                                controller.detachActiveConsoleSession()
+                                            }
+                                        },
                                     )
                                 }
                             }
@@ -335,7 +345,15 @@ private fun BoundControlDeckPane(
         onOpenAddMcpSheet = controller::openAddMcpSheet,
         onDismissAddMcpSheet = controller::dismissAddMcpSheet,
         onUpdateAddMcpForm = controller::updateAddMcpForm,
-        onSubmitAddMcp = controller::submitAddMcpServer,
+        onSubmitAddMcp = { controller.submitAddMcpServer(authenticateAfterSave = false) },
+        onSubmitAddMcpAndAuth = { controller.submitAddMcpServer(authenticateAfterSave = true) },
+        onStartMcpOAuth = { name -> controller.openMcpOAuthFlow(name) },
+        onUpdateMcpOAuthFlow = controller::updateMcpOAuthFlow,
+        onRetryMcpOAuthDiscovery = controller::startMcpOAuthDiscovery,
+        onSubmitMcpOAuthCode = controller::submitMcpOAuthCode,
+        onDismissMcpOAuthSheet = controller::dismissMcpOAuthSheet,
+        onRefreshMcpOAuth = controller::refreshMcpOAuthToken,
+        onSignOutMcpOAuth = controller::signOutMcpOAuth,
         onToggleMcpEnabled = controller::toggleMcpServerEnabled,
         onRequestRemoveMcp = controller::requestRemoveMcpServer,
         onCancelRemoveMcp = controller::cancelRemoveMcpServer,
@@ -402,6 +420,7 @@ private fun BoundSessionBrowserPane(
     controller: SessionBrowserController,
     selectedSessionId: String?,
     onOpenSession: (String) -> Unit,
+    onSessionDeleted: (String) -> Unit = {},
 ) {
     val st by controller.state.collectAsState()
     SessionBrowserScreen(
@@ -415,6 +434,11 @@ private fun BoundSessionBrowserPane(
         onOpenNewSession = controller::openNewSessionSheet,
         onSessionClick = { item -> controller.onSessionRowClick(item, onOpenSession) },
         onRenameRequest = controller::openRenameDialog,
+        onTogglePin = controller::togglePinSession,
+        onToggleArchive = controller::toggleArchiveSession,
+        onRequestDelete = controller::requestDeleteSession,
+        onDismissDelete = controller::dismissDeleteSession,
+        onConfirmDelete = { controller.confirmDeleteSession(onDeleted = onSessionDeleted) },
         onCloseSession = controller::closeLiveSession,
         onForkSession = { item -> controller.attemptForkSession(item, onOpenSession) },
         onResumeExternalSession = { ext ->
@@ -468,6 +492,23 @@ private fun BoundConsoleOrQuickAttachPane(
             showBackButton = showBackButton,
             onBack = onBack,
             onRenameTitleClick = consoleCtrl::openRenameDialog,
+            onTogglePin = { consoleCtrl.togglePinSession(onChanged = { browserCtrl?.refresh() }) },
+            onToggleArchive = {
+                consoleCtrl.toggleArchiveSession(
+                    onArchived = {
+                        browserCtrl?.refresh()
+                        onSessionClosed()
+                    },
+                )
+            },
+            onDeleteSession = {
+                consoleCtrl.deleteSessionPermanently(
+                    onDeleted = {
+                        browserCtrl?.refresh()
+                        onSessionClosed()
+                    },
+                )
+            },
             onUpdateRenameDraft = consoleCtrl::updateRenameDraft,
             onDismissRename = consoleCtrl::dismissRenameDialog,
             onSubmitRename = consoleCtrl::submitRenameSession,
@@ -498,6 +539,8 @@ private fun BoundConsoleOrQuickAttachPane(
             onDeleteQueueItem = consoleCtrl::deleteQueueItem,
             onSendQueueItemNow = { itemId -> consoleCtrl.sendQueueItemNow(itemId, interrupt = true) },
             onDraftChange = consoleCtrl::updateDraft,
+            onSubmitSpokenPrompt = consoleCtrl::submitSpokenPrompt,
+            onAppendVoiceNotice = consoleCtrl::appendVoiceNotice,
             onAttachBytes = consoleCtrl::attachFileBytes,
             onRejectOversizedAttachment = consoleCtrl::rejectOversizedAttachment,
             onRemoveAttachment = consoleCtrl::removeAttachment,

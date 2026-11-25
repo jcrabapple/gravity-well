@@ -64,6 +64,28 @@ interface EcosystemApi {
         @Path("name") name: String,
     ): DeleteMcpServerResponseDto
 
+    @POST("api/ecosystem/mcp/{name}/oauth/start")
+    suspend fun startMcpOAuth(
+        @Path("name") name: String,
+        @Body body: StartMcpOAuthRequestDto = StartMcpOAuthRequestDto(),
+    ): StartMcpOAuthResponseDto
+
+    @POST("api/ecosystem/mcp/{name}/oauth/complete")
+    suspend fun completeMcpOAuth(
+        @Path("name") name: String,
+        @Body body: CompleteMcpOAuthRequestDto,
+    ): CompleteMcpOAuthResponseDto
+
+    @POST("api/ecosystem/mcp/{name}/oauth/refresh")
+    suspend fun refreshMcpOAuth(
+        @Path("name") name: String,
+    ): CompleteMcpOAuthResponseDto
+
+    @DELETE("api/ecosystem/mcp/{name}/oauth")
+    suspend fun signOutMcpOAuth(
+        @Path("name") name: String,
+    ): SignOutMcpOAuthResponseDto
+
     @GET("api/ecosystem/plugins")
     suspend fun listPlugins(): PluginsListResponseDto
 

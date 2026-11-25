@@ -55,6 +55,8 @@ object ConsoleStreamReducer {
             addDirs = addDirs,
             status = cached.status,
             isLive = cached.isLive,
+            isPinned = cached.isPinned,
+            isArchived = cached.isArchived,
             configOptions = configs,
             availableCommands = commands,
             usage = UsageDto(used = cached.usedTokens, size = cached.contextSize),
@@ -76,6 +78,8 @@ object ConsoleStreamReducer {
             addDirs = snapshot.addDirs,
             status = if (applyVolatileState) snapshot.status else current.status,
             isLive = if (applyVolatileState) snapshot.isLive else current.isLive,
+            isPinned = snapshot.pinned,
+            isArchived = snapshot.archived,
             sandbox = if (applyVolatileState) snapshot.sandbox else current.sandbox,
             configOptions = snapshot.configOptions.ifEmpty { current.configOptions },
             availableModels = snapshot.availableModels.ifEmpty { current.availableModels },
@@ -209,7 +213,14 @@ object ConsoleStreamReducer {
             "session_info_update" -> {
                 val newTitle = payload["title"]?.jsonPrimitive?.contentOrNull?.ifBlank { null } ?: base.title
                 val newSource = payload["title_source"]?.jsonPrimitive?.contentOrNull ?: base.titleSource
-                base.copy(title = newTitle, titleSource = newSource)
+                val newPinned = payload["pinned"]?.jsonPrimitive?.booleanOrNull ?: base.isPinned
+                val newArchived = payload["archived"]?.jsonPrimitive?.booleanOrNull ?: base.isArchived
+                base.copy(
+                    title = newTitle,
+                    titleSource = newSource,
+                    isPinned = newPinned,
+                    isArchived = newArchived,
+                )
             }
 
             "user_message_chunk" -> {

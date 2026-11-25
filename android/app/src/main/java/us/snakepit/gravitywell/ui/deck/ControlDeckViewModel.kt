@@ -103,7 +103,7 @@ class ControlDeckController(
         _state.update { it.copy(addMcpForm = transform(it.addMcpForm)) }
     }
 
-    fun submitAddMcpServer() {
+    fun submitAddMcpServer(authenticateAfterSave: Boolean = false) {
         val form = _state.value.addMcpForm
         val cleanName = form.name.trim()
         val cleanTarget = form.target.trim()
@@ -133,6 +133,8 @@ class ControlDeckController(
             }
         }
         val headerMap = ControlDeckValidation.parseKeyValueLines(form.headerLines, ':')
+        val oauthClientId = form.oauthClientId.trim().ifEmpty { null }
+        val oauthClientSecret = form.oauthClientSecret.trim().ifEmpty { null }
 
         scope.launch {
             _state.update { it.copy(isMutating = true, errorBanner = null) }
@@ -145,6 +147,8 @@ class ControlDeckController(
                         args = args,
                         env = envMap,
                         headers = headerMap,
+                        oauthClientId = oauthClientId,
+                        oauthClientSecret = oauthClientSecret,
                     ),
                 )
                 ecosystemApi.listMcpServers()
@@ -155,6 +159,166 @@ class ControlDeckController(
                         showAddMcpSheet = false,
                         mcpServers = refreshed.items,
                         infoBanner = "Added MCP server '$cleanName'.",
+                    )
+                }
+                if (authenticateAfterSave && cleanType == "http") {
+                    openMcpOAuthFlow(
+                        serverName = cleanName,
+                        initialClientId = oauthClientId.orEmpty(),
+                        initialClientSecret = oauthClientSecret.orEmpty(),
+                        autoStart = true,
+                    )
+                }
+            }.onFailure { err ->
+                _state.update { it.copy(isMutating = false, errorBanner = formatError(err)) }
+            }
+        }
+    }
+
+    fun openMcpOAuthFlow(
+        serverName: String,
+        initialClientId: String = "",
+        initialClientSecret: String = "",
+        autoStart: Boolean = true,
+    ) {
+        _state.update {
+            it.copy(
+                activeOAuthFlow = McpOAuthFlowUiState(
+                    serverName = serverName,
+                    isStarting = autoStart,
+                    clientIdDraft = initialClientId,
+                    clientSecretDraft = initialClientSecret,
+                ),
+                errorBanner = null,
+            )
+        }
+        if (autoStart) {
+            startMcpOAuthDiscovery()
+        }
+    }
+
+    fun dismissMcpOAuthSheet() {
+        _state.update { it.copy(activeOAuthFlow = null) }
+    }
+
+    fun updateMcpOAuthFlow(transform: (McpOAuthFlowUiState) -> McpOAuthFlowUiState) {
+        _state.update { st ->
+            val cur = st.activeOAuthFlow ?: return@update st
+            st.copy(activeOAuthFlow = transform(cur))
+        }
+    }
+
+    fun startMcpOAuthDiscovery() {
+        val flow = _state.value.activeOAuthFlow ?: return
+        scope.launch {
+            _state.update { st ->
+                st.copy(
+                    activeOAuthFlow = st.activeOAuthFlow?.copy(
+                        isStarting = true,
+                        error = null,
+                    ),
+                )
+            }
+            runCatching {
+                ecosystemApi.startMcpOAuth(
+                    name = flow.serverName,
+                    body = StartMcpOAuthRequestDto(
+                        clientId = flow.clientIdDraft.trim().ifEmpty { null },
+                        clientSecret = flow.clientSecretDraft.trim().ifEmpty { null },
+                    ),
+                )
+            }.onSuccess { started ->
+                _state.update { st ->
+                    st.copy(
+                        activeOAuthFlow = st.activeOAuthFlow?.copy(
+                            isStarting = false,
+                            flowId = started.flowId,
+                            authorizationUrl = started.authorizationUrl,
+                            redirectUri = started.redirectUri.ifBlank { "https://antigravity.google/oauth-callback" },
+                            registrationMethod = started.registrationMethod,
+                            error = null,
+                        ),
+                    )
+                }
+            }.onFailure { err ->
+                _state.update { st ->
+                    st.copy(
+                        activeOAuthFlow = st.activeOAuthFlow?.copy(
+                            isStarting = false,
+                            error = formatError(err),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun submitMcpOAuthCode() {
+        val flow = _state.value.activeOAuthFlow ?: return
+        val flowId = flow.flowId
+        val code = flow.codeDraft.trim()
+        if (flowId.isNullOrBlank()) {
+            updateMcpOAuthFlow { it.copy(error = "Start OAuth discovery first.") }
+            return
+        }
+        if (code.isEmpty()) {
+            updateMcpOAuthFlow { it.copy(error = "Paste the authorization code or callback URL.") }
+            return
+        }
+        scope.launch {
+            updateMcpOAuthFlow { it.copy(isCompleting = true, error = null) }
+            runCatching {
+                ecosystemApi.completeMcpOAuth(
+                    name = flow.serverName,
+                    body = CompleteMcpOAuthRequestDto(flowId = flowId, code = code),
+                )
+                ecosystemApi.listMcpServers()
+            }.onSuccess { refreshed ->
+                _state.update {
+                    it.copy(
+                        activeOAuthFlow = null,
+                        mcpServers = refreshed.items,
+                        infoBanner = "Authenticated '${flow.serverName}' via OAuth.",
+                    )
+                }
+            }.onFailure { err ->
+                updateMcpOAuthFlow { it.copy(isCompleting = false, error = formatError(err)) }
+            }
+        }
+    }
+
+    fun refreshMcpOAuthToken(serverName: String) {
+        scope.launch {
+            _state.update { it.copy(isMutating = true, errorBanner = null) }
+            runCatching {
+                ecosystemApi.refreshMcpOAuth(serverName)
+                ecosystemApi.listMcpServers()
+            }.onSuccess { refreshed ->
+                _state.update {
+                    it.copy(
+                        isMutating = false,
+                        mcpServers = refreshed.items,
+                        infoBanner = "Refreshed OAuth token for '$serverName'.",
+                    )
+                }
+            }.onFailure { err ->
+                _state.update { it.copy(isMutating = false, errorBanner = formatError(err)) }
+            }
+        }
+    }
+
+    fun signOutMcpOAuth(serverName: String) {
+        scope.launch {
+            _state.update { it.copy(isMutating = true, errorBanner = null) }
+            runCatching {
+                ecosystemApi.signOutMcpOAuth(serverName)
+                ecosystemApi.listMcpServers()
+            }.onSuccess { refreshed ->
+                _state.update {
+                    it.copy(
+                        isMutating = false,
+                        mcpServers = refreshed.items,
+                        infoBanner = "Signed out OAuth session for '$serverName'.",
                     )
                 }
             }.onFailure { err ->

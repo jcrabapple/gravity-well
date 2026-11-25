@@ -303,6 +303,8 @@ data class ReducedSessionState(
     val addDirs: List<String> = emptyList(),
     val status: String = "idle",
     val isLive: Boolean = false,
+    val isPinned: Boolean = false,
+    val isArchived: Boolean = false,
     val sandbox: Boolean = false,
     val configOptions: List<ConfigOptionDto> = emptyList(),
     val availableModels: List<AvailableModelDto> = emptyList(),

@@ -133,6 +133,9 @@ data class SessionSnapshotDto(
     @SerialName("add_dirs") val addDirs: List<String> = emptyList(),
     val status: String = "idle",
     @SerialName("is_live") val isLive: Boolean = false,
+    val pinned: Boolean = false,
+    @SerialName("pinned_at") val pinnedAt: String? = null,
+    val archived: Boolean = false,
     val agent: String? = null,
     val sandbox: Boolean = false,
     @SerialName("config_options") val configOptions: List<ConfigOptionDto> = emptyList(),
@@ -155,6 +158,9 @@ data class SessionListItemDto(
     val cwd: String = "",
     @SerialName("is_live") val isLive: Boolean = false,
     val status: String = "archived",
+    val pinned: Boolean = false,
+    @SerialName("pinned_at") val pinnedAt: String? = null,
+    val archived: Boolean = false,
     @SerialName("step_count") val stepCount: Int = 0,
     @SerialName("model_id") val modelId: String? = null,
     @SerialName("thought_level") val thoughtLevel: String? = null,
@@ -213,7 +219,9 @@ data class ResumeSessionRequest(
 
 @Serializable
 data class RenameSessionRequest(
-    val title: String,
+    val title: String? = null,
+    val pinned: Boolean? = null,
+    val archived: Boolean? = null,
 )
 
 @Serializable
@@ -279,6 +287,7 @@ data class ResolveQuestionRequest(
 data class DeleteSessionResponse(
     @SerialName("session_id") val sessionId: String,
     val status: String,
+    val deleted: Boolean = false,
 )
 
 @Serializable

@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -44,12 +45,15 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Stop
@@ -80,6 +84,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -113,9 +118,14 @@ fun ConsoleTopBar(
     usage: UsageDto,
     streamIndicator: ConsoleStreamIndicator,
     isTurnActive: Boolean,
+    isPinned: Boolean = false,
+    isArchived: Boolean = false,
     showBackButton: Boolean,
     onBack: () -> Unit,
     onRenameTitle: () -> Unit,
+    onTogglePin: () -> Unit = {},
+    onToggleArchive: () -> Unit = {},
+    onRequestDelete: () -> Unit = {},
     onOpenConfigSheet: () -> Unit,
     onCancelTurn: () -> Unit,
     onOpenArtifacts: () -> Unit,
@@ -299,6 +309,32 @@ fun ConsoleTopBar(
                     },
                 )
                 DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = if (isPinned) "Unpin chat" else "Pin to top",
+                            style = type.bodyCompact,
+                            color = colors.inkPrimary,
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onTogglePin()
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = if (isArchived) "Unarchive chat" else "Archive chat",
+                            style = type.bodyCompact,
+                            color = colors.inkPrimary,
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onToggleArchive()
+                    },
+                )
+                DropdownMenuItem(
                     text = { Text("Artifacts", style = type.bodyCompact, color = colors.inkPrimary) },
                     onClick = {
                         menuExpanded = false
@@ -314,10 +350,17 @@ fun ConsoleTopBar(
                 )
                 HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
                 DropdownMenuItem(
-                    text = { Text("Close chat", style = type.bodyCompact, color = colors.signalCrimson) },
+                    text = { Text("Close session", style = type.bodyCompact, color = colors.inkSecondary) },
                     onClick = {
                         menuExpanded = false
                         onCloseSession()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete chat", style = type.bodyCompact, color = colors.signalCrimson) },
+                    onClick = {
+                        menuExpanded = false
+                        onRequestDelete()
                     },
                 )
             }
@@ -1451,12 +1494,16 @@ fun ThumbZoneComposerDock(
     attachmentThumbnails: Map<String, ByteArray>,
     atFileCandidates: List<WorkspaceFileItemDto>,
     slashCommands: List<AvailableCommandDto>,
+    isVoiceModeActive: Boolean = false,
+    isDictating: Boolean = false,
     onDraftChange: (text: String, cursor: Int) -> Unit,
     onPickAttachment: () -> Unit,
     onRemoveAttachment: (String) -> Unit,
     onToggleSlashBar: () -> Unit,
     onSelectSlashCommand: (String) -> Unit,
     onSelectAtFile: (WorkspaceFileItemDto) -> Unit,
+    onToggleDictation: () -> Unit = {},
+    onToggleVoiceMode: () -> Unit = {},
     onSubmit: () -> Unit,
 ) {
     val colors = GravityWellTheme.colors
@@ -1580,111 +1627,169 @@ fun ThumbZoneComposerDock(
             }
         }
 
-        // 4. Unified Rounded Chat Input Bar
+        // 4. Unified Two-Tier Rounded Chat Input Box (full-width text input + uniform compact action bar)
         val hasReadyContent = draftText.isNotBlank() ||
             attachments.any { it.state == AttachmentUploadState.READY }
         val anyUploading = attachments.any { it.state == AttachmentUploadState.UPLOADING }
         val canSend = hasReadyContent && !anyUploading && !isSubmitting
+        val showVoiceModeStart = !hasReadyContent && !isSubmitting && !isVoiceModeActive
 
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = spacing.md, vertical = spacing.sm)
                 .clip(shapes.lg)
                 .background(colors.stratumBase)
-                .border(spacing.hairlineWidth, colors.hairlineStrong, shapes.lg)
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                .border(
+                    width = spacing.hairlineWidth,
+                    color = if (isDictating) colors.signalCrimson else colors.hairlineStrong,
+                    shape = shapes.lg,
+                )
+                .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            IconButton(
-                onClick = onPickAttachment,
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.AttachFile,
-                    contentDescription = "Attach file",
-                    tint = colors.inkSecondary,
-                )
-            }
-
-            IconButton(
-                onClick = onToggleSlashBar,
-                modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
-            ) {
-                Text(
-                    text = "/",
-                    style = type.titleBar,
-                    color = colors.signalCyan,
-                )
-            }
-
-            OutlinedTextField(
+            // Tier 1: Full-width multi-line text field with generous typing room
+            BasicTextField(
                 value = fieldValue,
                 onValueChange = { next ->
                     fieldValue = next
                     onDraftChange(next.text, next.selection.end)
                 },
-                placeholder = {
-                    Text(
-                        text = if (isTurnActive) "Queue a follow-up..." else "Message Antigravity...",
-                        style = type.bodyProse,
-                        color = colors.inkMuted,
-                    )
+                textStyle = type.bodyProse.copy(color = colors.inkPrimary),
+                cursorBrush = SolidColor(colors.signalCyan),
+                maxLines = 6,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 26.dp),
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (fieldValue.text.isEmpty()) {
+                            Text(
+                                text = when {
+                                    isDictating -> "Listening... speak your prompt"
+                                    isTurnActive -> "Queue a follow-up..."
+                                    else -> "Message Antigravity..."
+                                },
+                                style = type.bodyProse,
+                                color = if (isDictating) colors.signalCrimson else colors.inkMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        innerTextField()
+                    }
                 },
-                textStyle = type.bodyProse,
-                maxLines = 5,
-                shape = shapes.md,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedTextColor = colors.inkPrimary,
-                    unfocusedTextColor = colors.inkPrimary,
-                    cursorColor = colors.signalCyan,
-                ),
-                modifier = Modifier.weight(1f),
             )
 
-            Box(
-                modifier = Modifier
-                    .defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor)
-                    .padding(4.dp),
-                contentAlignment = Alignment.Center,
+            // Tier 2: Compact, uniformly sized (36dp circles, 20dp icons, 6dp gaps) action row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                val buttonBg = when {
-                    !canSend -> colors.stratumRaised
-                    isTurnActive -> colors.signalAmber
-                    else -> colors.signalCyan
-                }
-                val iconTint = if (canSend) colors.inkInverse else colors.inkMuted
-
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(buttonBg)
-                        .clickable(enabled = canSend, onClick = onSubmit),
-                    contentAlignment = Alignment.Center,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (isSubmitting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = colors.inkInverse,
+                    ComposerActionCircle(
+                        icon = Icons.Rounded.AttachFile,
+                        contentDescription = "Attach file",
+                        tint = colors.inkSecondary,
+                        containerColor = colors.stratumRaised,
+                        onClick = onPickAttachment,
+                    )
+                    ComposerActionCircle(
+                        icon = Icons.Rounded.Code,
+                        contentDescription = "Slash commands",
+                        tint = colors.signalCyan,
+                        containerColor = colors.stratumRaised,
+                        onClick = onToggleSlashBar,
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    ComposerActionCircle(
+                        icon = Icons.Rounded.Mic,
+                        contentDescription = if (isDictating) "Stop dictation" else "Dictate message",
+                        tint = if (isDictating) colors.inkInverse else colors.inkSecondary,
+                        containerColor = if (isDictating) colors.signalCrimson else colors.stratumRaised,
+                        onClick = onToggleDictation,
+                    )
+
+                    if (showVoiceModeStart) {
+                        ComposerActionCircle(
+                            icon = Icons.Rounded.GraphicEq,
+                            contentDescription = "Start Voice mode",
+                            tint = colors.inkInverse,
+                            containerColor = colors.signalCyan,
+                            onClick = onToggleVoiceMode,
                         )
                     } else {
-                        Icon(
-                            imageVector = Icons.Rounded.ArrowUpward,
-                            contentDescription = if (isTurnActive) "Queue follow-up" else "Send message",
-                            tint = iconTint,
-                            modifier = Modifier.size(20.dp),
-                        )
+                        val buttonBg = when {
+                            !canSend -> colors.stratumRaised
+                            isTurnActive -> colors.signalAmber
+                            else -> colors.signalCyan
+                        }
+                        val iconTint = if (canSend) colors.inkInverse else colors.inkMuted
+
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(buttonBg)
+                                .clickable(enabled = canSend, onClick = onSubmit),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isSubmitting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = colors.inkInverse,
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Rounded.ArrowUpward,
+                                    contentDescription = if (isTurnActive) "Queue follow-up" else "Send message",
+                                    tint = iconTint,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ComposerActionCircle(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color,
+    containerColor: Color,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(containerColor)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 

@@ -56,7 +56,9 @@ class ForkSessionRequest(BaseModel):
 
 
 class RenameSessionRequest(BaseModel):
-    title: str
+    title: str | None = None
+    pinned: bool | None = None
+    archived: bool | None = None
 
 
 class UpdateConfigRequest(BaseModel):
@@ -417,7 +419,12 @@ def create_fastapi_app(config: GatewayConfig | None = None) -> FastAPI:
         body: RenameSessionRequest,
     ) -> dict[str, Any]:
         sup: SessionSupervisor = request.app.state.supervisor
-        return sup.rename_session(session_id=session_id, title=body.title)
+        return await sup.update_session(
+            session_id=session_id,
+            title=body.title,
+            pinned=body.pinned,
+            archived=body.archived,
+        )
 
     @fastapi_app.patch("/api/sessions/{session_id}/config", dependencies=[Depends(require_auth)])
     async def update_session_config(
@@ -434,8 +441,14 @@ def create_fastapi_app(config: GatewayConfig | None = None) -> FastAPI:
         )
 
     @fastapi_app.delete("/api/sessions/{session_id}", dependencies=[Depends(require_auth)])
-    async def close_session(request: Request, session_id: str) -> dict[str, Any]:
+    async def close_session(
+        request: Request,
+        session_id: str,
+        permanent: bool = Query(default=False),
+    ) -> dict[str, Any]:
         sup: SessionSupervisor = request.app.state.supervisor
+        if permanent:
+            return await sup.delete_session(session_id=session_id)
         return await sup.close_session(session_id=session_id)
 
     @fastapi_app.post(

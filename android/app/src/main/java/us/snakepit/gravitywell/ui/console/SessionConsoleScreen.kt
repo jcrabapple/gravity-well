@@ -1,10 +1,13 @@
 package us.snakepit.gravitywell.ui.console
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,11 +49,16 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +81,9 @@ fun SessionConsoleScreen(
     showBackButton: Boolean,
     onBack: () -> Unit,
     onRenameTitleClick: () -> Unit,
+    onTogglePin: () -> Unit = {},
+    onToggleArchive: () -> Unit = {},
+    onDeleteSession: () -> Unit = {},
     onUpdateRenameDraft: (String) -> Unit,
     onDismissRename: () -> Unit,
     onSubmitRename: () -> Unit,
@@ -103,6 +114,8 @@ fun SessionConsoleScreen(
     onDeleteQueueItem: (String) -> Unit,
     onSendQueueItemNow: (String) -> Unit,
     onDraftChange: (text: String, cursor: Int) -> Unit,
+    onSubmitSpokenPrompt: (String) -> Unit = {},
+    onAppendVoiceNotice: (label: String, message: String) -> Unit = { _, _ -> },
     onAttachBytes: (filename: String, declaredMime: String?, bytes: ByteArray) -> Unit,
     onRejectOversizedAttachment: (filename: String, sizeBytes: Long) -> Unit,
     onRemoveAttachment: (String) -> Unit,
@@ -121,6 +134,155 @@ fun SessionConsoleScreen(
     val uiScope = rememberCoroutineScope()
 
     val listState = rememberLazyListState()
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var pendingMicAction by remember { mutableStateOf<String?>(null) }
+    var dictationBaseDraft by remember { mutableStateOf("") }
+    var lastSpokenProseId by remember { mutableStateOf<String?>(null) }
+    var lastSpokenPermId by remember { mutableStateOf<String?>(null) }
+
+    val latestState by rememberUpdatedState(state)
+    val latestOnDraftChange by rememberUpdatedState(onDraftChange)
+    val latestOnSubmitSpoken by rememberUpdatedState(onSubmitSpokenPrompt)
+    val latestOnResolvePerm by rememberUpdatedState(onResolvePermission)
+    val latestOnCancelTurn by rememberUpdatedState(onCancelTurn)
+    val latestOnAppendVoiceNotice by rememberUpdatedState(onAppendVoiceNotice)
+
+    val voiceEngine = remember(context) {
+        var engineRef: AndroidVoiceEngine? = null
+        val created = AndroidVoiceEngine(
+            context = context,
+            onDictationPartial = { partial ->
+                val merged = if (dictationBaseDraft.isBlank()) partial else "${dictationBaseDraft.trimEnd()} $partial"
+                latestOnDraftChange(merged, merged.length)
+            },
+            onDictationFinal = { spoken ->
+                val merged = if (dictationBaseDraft.isBlank()) spoken else "${dictationBaseDraft.trimEnd()} $spoken"
+                latestOnDraftChange(merged, merged.length)
+                dictationBaseDraft = ""
+            },
+            onVoiceModeUtterance = { spoken ->
+                val curSession = latestState.session
+                val pendingPerm = curSession.pendingPermissions.firstOrNull()
+                val intent = VoiceCommandParser.parseUtterance(
+                    utterance = spoken,
+                    hasPendingPermission = pendingPerm != null,
+                    isTurnActive = curSession.isTurnActive,
+                )
+                when (intent) {
+                    VoiceIntent.EndCall -> {
+                        val secs = engineRef?.stopVoiceMode() ?: 0L
+                        latestOnAppendVoiceNotice("VOICE MODE", "Stopped voice chat · ${formatVoiceElapsed(secs)}")
+                    }
+                    VoiceIntent.StopTurn -> {
+                        latestOnCancelTurn()
+                        engineRef?.speak("Stopped.")
+                    }
+                    is VoiceIntent.PermissionDecision -> {
+                        if (pendingPerm != null) {
+                            val summary = pendingPerm.toolCall.toString()
+                            if (intent.decision != "deny" && VoiceCommandParser.isDestructiveCommand(summary)) {
+                                engineRef?.speak("That command looks destructive, so please tap Allow on screen or say deny.")
+                            } else {
+                                latestOnResolvePerm(pendingPerm.requestId, intent.decision, null)
+                                engineRef?.speak(if (intent.decision == "deny") "Denied." else "Allowed.")
+                            }
+                        }
+                    }
+                    is VoiceIntent.PromptText -> {
+                        engineRef?.setWorkingHint("Working on your request...")
+                        latestOnSubmitSpoken(intent.text)
+                    }
+                }
+            },
+            onVoiceError = { _ -> },
+        )
+        engineRef = created
+        created
+    }
+    val voiceState by voiceEngine.state.collectAsState()
+
+    DisposableEffect(voiceEngine) {
+        onDispose { voiceEngine.release() }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        val action = pendingMicAction
+        pendingMicAction = null
+        if (granted) {
+            when (action) {
+                "voice" -> {
+                    onAppendVoiceNotice("VOICE MODE", "Started voice chat")
+                    voiceEngine.startVoiceMode()
+                }
+                "dictate" -> {
+                    dictationBaseDraft = state.draftText
+                    voiceEngine.startDictation()
+                }
+            }
+        }
+    }
+
+    fun requestOrRunMicAction(action: String) {
+        val hasPerm = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasPerm) {
+            when (action) {
+                "voice" -> {
+                    if (voiceState.isActive) {
+                        val secs = voiceEngine.stopVoiceMode()
+                        onAppendVoiceNotice("VOICE MODE", "Stopped voice chat · ${formatVoiceElapsed(secs)}")
+                    } else {
+                        onAppendVoiceNotice("VOICE MODE", "Started voice chat")
+                        voiceEngine.startVoiceMode()
+                    }
+                }
+                "dictate" -> {
+                    if (voiceState.isDictating) {
+                        voiceEngine.stopDictation()
+                    } else {
+                        dictationBaseDraft = state.draftText
+                        voiceEngine.startDictation()
+                    }
+                }
+            }
+        } else {
+            pendingMicAction = action
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    // Speak settled Antigravity replies aloud automatically while Voice Mode is active
+    val latestSettledProse = remember(state.session.ledger) {
+        state.session.ledger
+            .lastOrNull { it is LedgerItem.AgentProse && !it.isStreaming && it.text.isNotBlank() }
+            as? LedgerItem.AgentProse
+    }
+    LaunchedEffect(voiceState.isActive, latestSettledProse?.id, state.session.isTurnActive) {
+        if (!voiceState.isActive) {
+            lastSpokenProseId = latestSettledProse?.id
+            return@LaunchedEffect
+        }
+        val prose = latestSettledProse ?: return@LaunchedEffect
+        if (!state.session.isTurnActive && prose.id != lastSpokenProseId) {
+            lastSpokenProseId = prose.id
+            voiceEngine.speak(prose.text)
+        }
+    }
+
+    // Read pending permission prompts aloud in Voice Mode
+    val firstPendingPerm = state.session.pendingPermissions.firstOrNull()
+    LaunchedEffect(voiceState.isActive, firstPendingPerm?.requestId) {
+        if (!voiceState.isActive || firstPendingPerm == null) return@LaunchedEffect
+        if (firstPendingPerm.requestId != lastSpokenPermId) {
+            lastSpokenPermId = firstPendingPerm.requestId
+            val title = firstPendingPerm.toolCall["title"]?.toString()?.trim('"') ?: "a tool action"
+            voiceEngine.speak("Permission needed for $title. Say allow once, always allow, or deny.")
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -190,9 +352,14 @@ fun SessionConsoleScreen(
             usage = state.session.usage,
             streamIndicator = state.streamIndicator,
             isTurnActive = state.session.isTurnActive,
+            isPinned = state.session.isPinned,
+            isArchived = state.session.isArchived,
             showBackButton = showBackButton,
             onBack = onBack,
             onRenameTitle = onRenameTitleClick,
+            onTogglePin = onTogglePin,
+            onToggleArchive = onToggleArchive,
+            onRequestDelete = { showDeleteConfirm = true },
             onOpenConfigSheet = onOpenConfigSheet,
             onCancelTurn = onCancelTurn,
             onOpenArtifacts = onOpenArtifacts,
@@ -419,7 +586,24 @@ fun SessionConsoleScreen(
             )
         }
 
-        // 6. Rounded Chat Composer Dock
+        // 5b. Active Antigravity Voice Mode Panel
+        if (voiceState.isActive) {
+            VoiceModeCallPanel(
+                voiceState = voiceState,
+                onToggleMicMuted = voiceEngine::toggleMicMuted,
+                onToggleAgentMuted = voiceEngine::toggleAgentMuted,
+                onCycleSpeed = voiceEngine::cycleSpeed,
+                onOpenVoicePicker = { voiceEngine.setShowVoicePicker(true) },
+                onToggleMinimized = { voiceEngine.setMinimized(!voiceState.minimized) },
+                onInterruptSpeaking = voiceEngine::interruptSpeakingAndListen,
+                onEndCall = {
+                    val secs = voiceEngine.stopVoiceMode()
+                    onAppendVoiceNotice("VOICE MODE", "Stopped voice chat · ${formatVoiceElapsed(secs)}")
+                },
+            )
+        }
+
+        // 6. Two-Tier Rounded Chat Composer Dock
         ThumbZoneComposerDock(
             draftText = state.draftText,
             draftCursorIndex = state.draftCursorIndex,
@@ -429,13 +613,64 @@ fun SessionConsoleScreen(
             attachmentThumbnails = state.attachmentThumbnails,
             atFileCandidates = state.atFileCandidates,
             slashCommands = slashCommands,
+            isVoiceModeActive = voiceState.isActive,
+            isDictating = voiceState.isDictating,
             onDraftChange = onDraftChange,
             onPickAttachment = { filePickerLauncher.launch(arrayOf("*/*")) },
             onRemoveAttachment = onRemoveAttachment,
             onToggleSlashBar = onToggleSlashBar,
             onSelectSlashCommand = onSelectSlashCommand,
             onSelectAtFile = onSelectAtFile,
+            onToggleDictation = { requestOrRunMicAction("dictate") },
+            onToggleVoiceMode = { requestOrRunMicAction("voice") },
             onSubmit = onSubmitPrompt,
+        )
+    }
+
+    if (voiceState.showVoicePicker) {
+        VoicePickerSheet(
+            voices = voiceState.availableVoices,
+            selectedVoiceId = voiceState.selectedVoiceId,
+            onSelectVoice = { id -> voiceEngine.selectVoice(id, preview = true) },
+            onDismiss = { voiceEngine.setShowVoicePicker(false) },
+        )
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = colors.stratumBase,
+            tonalElevation = spacing.elevationZero,
+            shape = shapes.lg,
+            title = {
+                Text("Delete chat?", style = type.titleBar, color = colors.inkPrimary)
+            },
+            text = {
+                Text(
+                    text = "Permanently remove \"${state.session.title}\" from Gravity Well? This cannot be undone.",
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDeleteSession()
+                    },
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                ) {
+                    Text("Delete", style = type.labelUi, color = colors.signalCrimson)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteConfirm = false },
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                ) {
+                    Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
+                }
+            },
         )
     }
 

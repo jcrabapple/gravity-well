@@ -12,7 +12,7 @@ import shutil
 import tempfile
 from typing import Any, Mapping
 
-GATEWAY_VERSION = "1.0.0"
+GATEWAY_VERSION = "1.2.0"
 SERVICE_NAME = "gravity-well-gateway"
 ACP_PROTOCOL_VERSION = 1
 

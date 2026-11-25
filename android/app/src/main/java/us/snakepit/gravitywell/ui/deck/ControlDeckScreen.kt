@@ -80,6 +80,14 @@ fun ControlDeckScreen(
     onDismissAddMcpSheet: () -> Unit,
     onUpdateAddMcpForm: ((AddMcpFormState) -> AddMcpFormState) -> Unit,
     onSubmitAddMcp: () -> Unit,
+    onSubmitAddMcpAndAuth: () -> Unit = {},
+    onStartMcpOAuth: (String) -> Unit = {},
+    onUpdateMcpOAuthFlow: ((McpOAuthFlowUiState) -> McpOAuthFlowUiState) -> Unit = {},
+    onRetryMcpOAuthDiscovery: () -> Unit = {},
+    onSubmitMcpOAuthCode: () -> Unit = {},
+    onDismissMcpOAuthSheet: () -> Unit = {},
+    onRefreshMcpOAuth: (String) -> Unit = {},
+    onSignOutMcpOAuth: (String) -> Unit = {},
     onToggleMcpEnabled: (name: String, enabled: Boolean) -> Unit,
     onRequestRemoveMcp: (String) -> Unit,
     onCancelRemoveMcp: () -> Unit,
@@ -239,6 +247,9 @@ fun ControlDeckScreen(
                         isMutating = state.isMutating,
                         onOpenAdd = onOpenAddMcpSheet,
                         onToggleEnabled = onToggleMcpEnabled,
+                        onAuthenticate = onStartMcpOAuth,
+                        onRefreshOAuth = onRefreshMcpOAuth,
+                        onSignOutOAuth = onSignOutMcpOAuth,
                         onRequestRemove = onRequestRemoveMcp,
                     )
 
@@ -315,7 +326,19 @@ fun ControlDeckScreen(
             isMutating = state.isMutating,
             onUpdateForm = onUpdateAddMcpForm,
             onSubmit = onSubmitAddMcp,
+            onSubmitAndAuthenticate = onSubmitAddMcpAndAuth,
             onDismiss = onDismissAddMcpSheet,
+        )
+    }
+
+    val oauthFlow = state.activeOAuthFlow
+    if (oauthFlow != null) {
+        McpOAuthSheet(
+            flow = oauthFlow,
+            onUpdateFlow = onUpdateMcpOAuthFlow,
+            onStartDiscovery = onRetryMcpOAuthDiscovery,
+            onSubmitCode = onSubmitMcpOAuthCode,
+            onDismiss = onDismissMcpOAuthSheet,
         )
     }
 
@@ -430,6 +453,9 @@ private fun McpServersTabContent(
     isMutating: Boolean,
     onOpenAdd: () -> Unit,
     onToggleEnabled: (name: String, enabled: Boolean) -> Unit,
+    onAuthenticate: (String) -> Unit,
+    onRefreshOAuth: (String) -> Unit,
+    onSignOutOAuth: (String) -> Unit,
     onRequestRemove: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -494,6 +520,9 @@ private fun McpServersTabContent(
                         server = pair[0],
                         isMutating = isMutating,
                         onToggleEnabled = onToggleEnabled,
+                        onAuthenticate = onAuthenticate,
+                        onRefreshOAuth = onRefreshOAuth,
+                        onSignOutOAuth = onSignOutOAuth,
                         onRequestRemove = onRequestRemove,
                         modifier = Modifier.weight(1f),
                     )
@@ -502,6 +531,9 @@ private fun McpServersTabContent(
                             server = pair[1],
                             isMutating = isMutating,
                             onToggleEnabled = onToggleEnabled,
+                            onAuthenticate = onAuthenticate,
+                            onRefreshOAuth = onRefreshOAuth,
+                            onSignOutOAuth = onSignOutOAuth,
                             onRequestRemove = onRequestRemove,
                             modifier = Modifier.weight(1f),
                         )
@@ -516,6 +548,9 @@ private fun McpServersTabContent(
                     server = srv,
                     isMutating = isMutating,
                     onToggleEnabled = onToggleEnabled,
+                    onAuthenticate = onAuthenticate,
+                    onRefreshOAuth = onRefreshOAuth,
+                    onSignOutOAuth = onSignOutOAuth,
                     onRequestRemove = onRequestRemove,
                 )
             }
@@ -529,6 +564,9 @@ private fun McpServerCard(
     server: McpServerItemDto,
     isMutating: Boolean,
     onToggleEnabled: (name: String, enabled: Boolean) -> Unit,
+    onAuthenticate: (String) -> Unit,
+    onRefreshOAuth: (String) -> Unit,
+    onSignOutOAuth: (String) -> Unit,
     onRequestRemove: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -647,10 +685,76 @@ private fun McpServerCard(
             }
         }
 
-        Row(
+        val oauth = server.oauthStatus
+        if (server.type == "http" && oauth?.authenticated == true) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(shapes.pill)
+                        .background(colors.signalEmeraldDim)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                ) {
+                    Text("OAuth authenticated", style = type.labelSmallUi, color = colors.signalEmerald)
+                }
+                if (!oauth.scope.isNullOrBlank()) {
+                    Text(
+                        text = oauth.scope,
+                        style = type.monoMicro,
+                        color = colors.inkMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
+            horizontalArrangement = Arrangement.spacedBy(spacing.xs, Alignment.End),
+            verticalArrangement = Arrangement.spacedBy(spacing.xs),
         ) {
+            if (server.type == "http") {
+                if (oauth?.authenticated == true) {
+                    if (oauth.hasRefreshToken) {
+                        OutlinedButton(
+                            onClick = { onRefreshOAuth(server.name) },
+                            enabled = !isMutating,
+                            shape = shapes.pill,
+                            border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
+                            modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
+                        ) {
+                            Text("Refresh", style = type.labelUi, color = colors.signalCyan)
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { onSignOutOAuth(server.name) },
+                        enabled = !isMutating,
+                        shape = shapes.pill,
+                        border = BorderStroke(spacing.hairlineWidth, colors.hairlineStrong),
+                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
+                    ) {
+                        Text("Sign out", style = type.labelUi, color = colors.inkSecondary)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { onAuthenticate(server.name) },
+                        enabled = !isMutating,
+                        shape = shapes.pill,
+                        border = BorderStroke(spacing.hairlineWidth, colors.signalCyan),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = colors.signalCyanDim,
+                            contentColor = colors.signalCyan,
+                        ),
+                        modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = 40.dp),
+                    ) {
+                        Text("Authenticate", style = type.labelUi)
+                    }
+                }
+            }
+
             OutlinedButton(
                 onClick = { onRequestRemove(server.name) },
                 enabled = !isMutating,

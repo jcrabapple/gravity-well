@@ -10,6 +10,7 @@ import mimetypes
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import sqlite3
 import tempfile
 from typing import Any, Sequence
@@ -270,23 +271,67 @@ class StorageManager:
         entry = overrides.get(session_id)
         return entry if isinstance(entry, dict) else None
 
+    def is_session_deleted(self, session_id: str) -> bool:
+        meta = self.get_session_meta(session_id)
+        return bool(meta and meta.get("deleted"))
+
     def set_title_override(
         self,
         session_id: str,
         title: str,
         cwd: str | None = None,
     ) -> dict[str, Any]:
+        return self.update_session_meta(session_id, title=title, cwd=cwd)
+
+    def update_session_meta(
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+        cwd: str | None = None,
+        pinned: bool | None = None,
+        archived: bool | None = None,
+        deleted: bool | None = None,
+    ) -> dict[str, Any]:
         validate_session_id(session_id)
         overrides = self.get_title_overrides()
         existing = overrides.get(session_id)
         entry: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
-        entry["title"] = title
-        entry["updated_at"] = utc_now_iso()
+        now_iso = utc_now_iso()
+        if title is not None:
+            entry["title"] = title
         if cwd:
             entry["cwd"] = cwd
+        if pinned is not None:
+            entry["pinned"] = bool(pinned)
+            entry["pinned_at"] = now_iso if pinned else None
+        if archived is not None:
+            entry["archived"] = bool(archived)
+            if archived:
+                entry["archived_at"] = now_iso
+            else:
+                entry.pop("archived_at", None)
+        if deleted is not None:
+            entry["deleted"] = bool(deleted)
+            if deleted:
+                entry["deleted_at"] = now_iso
+                entry["pinned"] = False
+                entry["pinned_at"] = None
+                entry["archived"] = False
+            else:
+                entry.pop("deleted_at", None)
+        entry["updated_at"] = now_iso
         overrides[session_id] = entry
         atomic_write_json(self.session_meta_path, overrides, mode=0o600)
         return entry
+
+    def delete_session_uploads(self, session_id: str) -> None:
+        validate_session_id(session_id)
+        for key in [k for k in self._attachments_index if k[0] == session_id]:
+            self._attachments_index.pop(key, None)
+        upload_dir = self._config.config_dir / "uploads" / session_id
+        if upload_dir.is_dir():
+            shutil.rmtree(upload_dir, ignore_errors=True)
 
     def _open_summaries_ro(self) -> sqlite3.Connection | None:
         db_path = self.summaries_db_path
@@ -303,6 +348,8 @@ class StorageManager:
         validate_session_id(session_id)
         overrides = self.get_title_overrides()
         meta = overrides.get(session_id) if isinstance(overrides.get(session_id), dict) else None
+        if meta and meta.get("deleted"):
+            return None
 
         conn = self._open_summaries_ro()
         if conn is None:
@@ -510,13 +557,18 @@ class StorageManager:
             items: list[dict[str, Any]] = []
             for r in raw_rows:
                 cid = r["conversation_id"]
+                meta = overrides.get(cid)
+                if isinstance(meta, dict) and meta.get("deleted"):
+                    continue
                 ws_paths = _parse_workspace_uris(r["workspace_uris"])
                 if cwd_real is not None:
                     norm_ws = [os.path.realpath(p) for p in ws_paths]
                     if cwd_real not in norm_ws:
                         continue
-                meta = overrides.get(cid)
                 custom_title = meta.get("title") if isinstance(meta, dict) else None
+                is_pinned = bool(meta.get("pinned", False)) if isinstance(meta, dict) else False
+                pinned_at = meta.get("pinned_at") if isinstance(meta, dict) else None
+                explicit_archived = bool(meta.get("archived", False)) if isinstance(meta, dict) else False
                 items.append(
                     {
                         "conversation_id": cid,
@@ -528,6 +580,9 @@ class StorageManager:
                         "step_count": int(r["step_count"] or 0),
                         "last_modified_time": r["last_modified_time"] or "",
                         "archived": bool(r["archived"]),
+                        "explicit_archived": explicit_archived,
+                        "pinned": is_pinned,
+                        "pinned_at": pinned_at,
                     }
                 )
 

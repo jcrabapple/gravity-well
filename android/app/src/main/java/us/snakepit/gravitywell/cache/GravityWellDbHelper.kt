@@ -54,6 +54,9 @@ class GravityWellDbHelper(
                 add_dirs_json     TEXT NOT NULL DEFAULT '[]',
                 status            TEXT NOT NULL,
                 is_live           INTEGER NOT NULL DEFAULT 0,
+                is_pinned         INTEGER NOT NULL DEFAULT 0,
+                pinned_at         TEXT,
+                is_archived       INTEGER NOT NULL DEFAULT 0,
                 model_id          TEXT,
                 thought_level     TEXT,
                 mode_id           TEXT,
@@ -161,12 +164,16 @@ class GravityWellDbHelper(
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Schema version 1 initial baseline.
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE sessions ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0;")
+            db.execSQL("ALTER TABLE sessions ADD COLUMN pinned_at TEXT;")
+            db.execSQL("ALTER TABLE sessions ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;")
+        }
     }
 
     companion object {
         const val DATABASE_NAME = "gravity_well_cache.db"
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
         const val MAX_EVENTS_PER_SESSION = 1000
     }
 }

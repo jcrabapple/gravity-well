@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Tune
@@ -92,6 +93,11 @@ fun SessionBrowserScreen(
     onOpenNewSession: () -> Unit,
     onSessionClick: (SessionBrowserItem) -> Unit,
     onRenameRequest: (SessionBrowserItem) -> Unit,
+    onTogglePin: (SessionBrowserItem) -> Unit = {},
+    onToggleArchive: (SessionBrowserItem) -> Unit = {},
+    onRequestDelete: (SessionBrowserItem) -> Unit = {},
+    onDismissDelete: () -> Unit = {},
+    onConfirmDelete: () -> Unit = {},
     onCloseSession: (String) -> Unit,
     onForkSession: (SessionBrowserItem) -> Unit,
     onResumeExternalSession: (ExternalSessionPresenceDto) -> Unit,
@@ -335,8 +341,11 @@ fun SessionBrowserScreen(
                             forkSupported = state.capabilities.fork,
                             agyVersion = state.agyVersion,
                             onClick = { onSessionClick(item) },
+                            onTogglePin = { onTogglePin(item) },
                             onRename = { onRenameRequest(item) },
+                            onToggleArchive = { onToggleArchive(item) },
                             onClose = { onCloseSession(item.sessionId) },
+                            onDelete = { onRequestDelete(item) },
                             onFork = { onForkSession(item) },
                         )
                     }
@@ -425,6 +434,49 @@ fun SessionBrowserScreen(
             dismissButton = {
                 TextButton(
                     onClick = onDismissRename,
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                ) {
+                    Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
+                }
+            },
+        )
+    }
+
+    // ── Delete Chat Confirmation Dialog ──────────────────────────────────────
+    val deleteTarget = state.deleteTarget
+    if (deleteTarget != null) {
+        AlertDialog(
+            onDismissRequest = onDismissDelete,
+            containerColor = colors.stratumBase,
+            tonalElevation = spacing.elevationZero,
+            shape = shapes.lg,
+            title = {
+                Text("Delete chat?", style = type.titleBar, color = colors.inkPrimary)
+            },
+            text = {
+                Text(
+                    text = "Permanently remove \"${deleteTarget.title}\" from Gravity Well? This cannot be undone.",
+                    style = type.bodyCompact,
+                    color = colors.inkSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !state.isDeleting,
+                    onClick = onConfirmDelete,
+                    modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
+                ) {
+                    Text(
+                        text = if (state.isDeleting) "Deleting..." else "Delete",
+                        style = type.labelUi,
+                        color = colors.signalCrimson,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !state.isDeleting,
+                    onClick = onDismissDelete,
                     modifier = Modifier.defaultMinSize(minWidth = spacing.touchFloor, minHeight = spacing.touchFloor),
                 ) {
                     Text("Cancel", style = type.labelUi, color = colors.inkSecondary)
@@ -643,8 +695,11 @@ private fun TelemetrySessionRow(
     forkSupported: Boolean,
     agyVersion: String,
     onClick: () -> Unit,
+    onTogglePin: () -> Unit,
     onRename: () -> Unit,
+    onToggleArchive: () -> Unit,
     onClose: () -> Unit,
+    onDelete: () -> Unit,
     onFork: () -> Unit,
 ) {
     val colors = GravityWellTheme.colors
@@ -683,7 +738,11 @@ private fun TelemetrySessionRow(
             .background(if (isSelected) colors.stratumRaised else colors.stratumBase)
             .border(
                 width = spacing.hairlineWidth,
-                color = if (isSelected) colors.signalCyan else colors.hairline,
+                color = when {
+                    isSelected -> colors.signalCyan
+                    item.isPinned -> colors.signalCyan.copy(alpha = 0.45f)
+                    else -> colors.hairline
+                },
                 shape = shapes.md,
             )
             .clickable(onClick = onClick)
@@ -705,20 +764,34 @@ private fun TelemetrySessionRow(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            // Line 1: Title + Relative Timestamp
+            // Line 1: Pin badge + Title + Relative Timestamp
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    text = item.title,
-                    style = type.titleBar,
-                    color = colors.inkPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
                     modifier = Modifier.weight(1f),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    if (item.isPinned) {
+                        Icon(
+                            imageVector = Icons.Rounded.PushPin,
+                            contentDescription = "Pinned chat",
+                            tint = colors.signalCyan,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                    Text(
+                        text = item.title,
+                        style = type.titleBar,
+                        color = colors.inkPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
                 Spacer(modifier = Modifier.width(spacing.sm))
                 Text(
                     text = compactTimestamp(item.updatedAt),
@@ -810,21 +883,55 @@ private fun TelemetrySessionRow(
                 border = BorderStroke(spacing.hairlineWidth, colors.hairline),
             ) {
                 DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = if (item.isPinned) "Unpin" else "Pin to top",
+                            style = type.bodyCompact,
+                            color = colors.inkPrimary,
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onTogglePin()
+                    },
+                )
+                DropdownMenuItem(
                     text = { Text("Rename", style = type.bodyCompact, color = colors.inkPrimary) },
                     onClick = {
                         menuExpanded = false
                         onRename()
                     },
                 )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = if (item.isArchived) "Unarchive" else "Archive",
+                            style = type.bodyCompact,
+                            color = colors.inkPrimary,
+                        )
+                    },
+                    onClick = {
+                        menuExpanded = false
+                        onToggleArchive()
+                    },
+                )
                 if (item.isLive) {
                     DropdownMenuItem(
-                        text = { Text("Close chat", style = type.bodyCompact, color = colors.signalCrimson) },
+                        text = { Text("Close session", style = type.bodyCompact, color = colors.inkSecondary) },
                         onClick = {
                             menuExpanded = false
                             onClose()
                         },
                     )
                 }
+                HorizontalDivider(thickness = spacing.hairlineWidth, color = colors.hairline)
+                DropdownMenuItem(
+                    text = { Text("Delete", style = type.bodyCompact, color = colors.signalCrimson) },
+                    onClick = {
+                        menuExpanded = false
+                        onDelete()
+                    },
+                )
                 DropdownMenuItem(
                     enabled = forkSupported,
                     text = {

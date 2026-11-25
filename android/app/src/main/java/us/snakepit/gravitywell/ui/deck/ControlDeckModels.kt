@@ -95,6 +95,17 @@ data class DeleteAgentResponseDto(
 
 @Keep
 @Serializable
+data class McpOAuthStatusDto(
+    val authenticated: Boolean = false,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("has_refresh_token") val hasRefreshToken: Boolean = false,
+    @SerialName("has_manual_client") val hasManualClient: Boolean = false,
+    val scope: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+)
+
+@Keep
+@Serializable
 data class McpServerItemDto(
     val name: String,
     val type: String = "stdio",
@@ -107,6 +118,7 @@ data class McpServerItemDto(
     val headers: Map<String, String> = emptyMap(),
     @SerialName("env_keys") val envKeys: List<String> = emptyList(),
     @SerialName("header_keys") val headerKeys: List<String> = emptyList(),
+    @SerialName("oauth_status") val oauthStatus: McpOAuthStatusDto? = null,
 )
 
 @Keep
@@ -124,6 +136,52 @@ data class CreateMcpServerRequestDto(
     val args: List<String> = emptyList(),
     val env: Map<String, String> = emptyMap(),
     val headers: Map<String, String> = emptyMap(),
+    @SerialName("oauth_client_id") val oauthClientId: String? = null,
+    @SerialName("oauth_client_secret") val oauthClientSecret: String? = null,
+)
+
+@Keep
+@Serializable
+data class StartMcpOAuthRequestDto(
+    @SerialName("client_id") val clientId: String? = null,
+    @SerialName("client_secret") val clientSecret: String? = null,
+    val scopes: List<String> = emptyList(),
+)
+
+@Keep
+@Serializable
+data class StartMcpOAuthResponseDto(
+    @SerialName("flow_id") val flowId: String,
+    @SerialName("server_name") val serverName: String,
+    @SerialName("authorization_url") val authorizationUrl: String,
+    @SerialName("redirect_uri") val redirectUri: String = "",
+    @SerialName("registration_method") val registrationMethod: String = "",
+    val scope: String? = null,
+)
+
+@Keep
+@Serializable
+data class CompleteMcpOAuthRequestDto(
+    @SerialName("flow_id") val flowId: String,
+    val code: String,
+)
+
+@Keep
+@Serializable
+data class CompleteMcpOAuthResponseDto(
+    @SerialName("server_name") val serverName: String = "",
+    val authenticated: Boolean = false,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("has_refresh_token") val hasRefreshToken: Boolean = false,
+    val scope: String? = null,
+)
+
+@Keep
+@Serializable
+data class SignOutMcpOAuthResponseDto(
+    @SerialName("server_name") val serverName: String = "",
+    val authenticated: Boolean = false,
+    @SerialName("signed_out") val signedOut: Boolean = false,
 )
 
 @Keep
@@ -364,6 +422,23 @@ data class AddMcpFormState(
     val argsLine: String = "",
     val envLines: String = "",
     val headerLines: String = "",
+    val oauthClientId: String = "",
+    val oauthClientSecret: String = "",
+)
+
+@Immutable
+data class McpOAuthFlowUiState(
+    val serverName: String,
+    val isStarting: Boolean = false,
+    val isCompleting: Boolean = false,
+    val flowId: String? = null,
+    val authorizationUrl: String? = null,
+    val redirectUri: String = "https://antigravity.google/oauth-callback",
+    val registrationMethod: String = "",
+    val clientIdDraft: String = "",
+    val clientSecretDraft: String = "",
+    val codeDraft: String = "",
+    val error: String? = null,
 )
 
 @Immutable
@@ -383,6 +458,7 @@ data class ControlDeckUiState(
     val mcpServers: List<McpServerItemDto> = emptyList(),
     val showAddMcpSheet: Boolean = false,
     val addMcpForm: AddMcpFormState = AddMcpFormState(),
+    val activeOAuthFlow: McpOAuthFlowUiState? = null,
     val pendingRemoveMcpName: String? = null,
     val plugins: List<PluginUiItem> = emptyList(),
     val pluginTargetDraft: String = "",

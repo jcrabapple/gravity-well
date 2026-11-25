@@ -243,6 +243,9 @@ class SessionConsoleController(
                         },
                         status = nextSession.status,
                         isLive = nextSession.isLive,
+                        isPinned = nextSession.isPinned,
+                        pinnedAt = existing?.pinnedAt,
+                        isArchived = nextSession.isArchived,
                         modelId = modelVal,
                         thoughtLevel = thoughtVal,
                         modeId = modeVal,
@@ -599,6 +602,95 @@ class SessionConsoleController(
                         errorBanner = t.message ?: "Failed to submit prompt",
                     )
                 }
+            }
+        }
+    }
+
+    fun submitSpokenPrompt(spokenText: String) {
+        val clean = spokenText.trim()
+        if (clean.isEmpty()) return
+        val snap = _state.value
+        scope.launch {
+            try {
+                gatewayApi.submitPrompt(
+                    sessionId = sessionId,
+                    body = SubmitPromptRequest(
+                        text = clean,
+                        enqueueIfBusy = true,
+                        autoResume = !snap.session.isLive,
+                        cwd = snap.session.cwd.ifBlank { host.defaultCwd },
+                    ),
+                )
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(errorBanner = t.message ?: "Failed to send spoken prompt")
+                }
+            }
+        }
+    }
+
+    fun appendVoiceNotice(label: String, message: String) {
+        _state.update { cur ->
+            val notice = LedgerItem.SystemNotice(
+                id = "voice_${UUID.randomUUID().toString().take(8)}",
+                seq = cur.session.lastSeq,
+                ts = nowIso(),
+                label = label,
+                message = message,
+                isError = false,
+            )
+            cur.copy(session = cur.session.copy(ledger = cur.session.ledger + notice))
+        }
+    }
+
+    fun togglePinSession(onChanged: () -> Unit = {}) {
+        val nextPinned = !_state.value.session.isPinned
+        scope.launch {
+            try {
+                val snap = gatewayApi.renameSession(sessionId, RenameSessionRequest(pinned = nextPinned))
+                val existing = cacheStore.getSession(host.hostId, sessionId)
+                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json, existing))
+                _state.update { cur ->
+                    cur.copy(session = cur.session.copy(isPinned = snap.pinned))
+                }
+                onChanged()
+            } catch (t: Throwable) {
+                _state.update { it.copy(errorBanner = t.message ?: "Failed to update pin state") }
+            }
+        }
+    }
+
+    fun toggleArchiveSession(onArchived: () -> Unit = {}) {
+        val nextArchived = !_state.value.session.isArchived
+        scope.launch {
+            try {
+                val snap = gatewayApi.renameSession(sessionId, RenameSessionRequest(archived = nextArchived))
+                val existing = cacheStore.getSession(host.hostId, sessionId)
+                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json, existing))
+                _state.update { cur ->
+                    cur.copy(
+                        session = cur.session.copy(
+                            isArchived = snap.archived,
+                            isLive = snap.isLive,
+                            status = snap.status,
+                        ),
+                    )
+                }
+                if (nextArchived) onArchived()
+            } catch (t: Throwable) {
+                _state.update { it.copy(errorBanner = t.message ?: "Failed to update archive state") }
+            }
+        }
+    }
+
+    fun deleteSessionPermanently(onDeleted: () -> Unit = {}) {
+        scope.launch {
+            try {
+                gatewayApi.deleteSessionPermanently(sessionId)
+                cacheStore.deleteSession(host.hostId, sessionId)
+                onDeleted()
+            } catch (t: Throwable) {
+                _state.update { it.copy(errorBanner = t.message ?: "Failed to delete chat") }
             }
         }
     }

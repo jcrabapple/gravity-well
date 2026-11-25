@@ -45,6 +45,9 @@ data class SessionBrowserItem(
     val cwd: String,
     val isLive: Boolean,
     val status: String,
+    val isPinned: Boolean = false,
+    val pinnedAt: String? = null,
+    val isArchived: Boolean = false,
     val stepCount: Int = 0,
     val modelId: String? = null,
     val thoughtLevel: String? = null,
@@ -93,6 +96,8 @@ data class SessionBrowserUiState(
     val isResuming: Boolean = false,
     val renameTarget: SessionBrowserItem? = null,
     val renameDraft: String = "",
+    val deleteTarget: SessionBrowserItem? = null,
+    val isDeleting: Boolean = false,
     val showNewSessionSheet: Boolean = false,
     val newSessionForm: NewSessionFormState = NewSessionFormState(),
 ) {
@@ -348,6 +353,88 @@ class SessionBrowserController(
         }
     }
 
+    fun togglePinSession(item: SessionBrowserItem) {
+        val nextPinned = !item.isPinned
+        scope.launch {
+            try {
+                val snap = gatewayApi.renameSession(
+                    sessionId = item.sessionId,
+                    body = RenameSessionRequest(pinned = nextPinned),
+                )
+                val existing = cacheStore.getSession(host.hostId, item.sessionId)
+                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json, existing))
+                refresh()
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                _state.update { it.copy(errorBanner = t.message ?: "Failed to update pin") }
+            }
+        }
+    }
+
+    fun toggleArchiveSession(item: SessionBrowserItem) {
+        val nextArchived = !item.isArchived
+        scope.launch {
+            try {
+                val snap = gatewayApi.renameSession(
+                    sessionId = item.sessionId,
+                    body = RenameSessionRequest(archived = nextArchived),
+                )
+                val existing = cacheStore.getSession(host.hostId, item.sessionId)
+                cacheStore.upsertSession(snap.toCachedSession(host.hostId, json, existing))
+                _state.update {
+                    it.copy(
+                        infoNotice = if (nextArchived) "Archived \"${item.title}\"." else "Unarchived \"${item.title}\".",
+                    )
+                }
+                refresh()
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                _state.update { it.copy(errorBanner = t.message ?: "Failed to update archive state") }
+            }
+        }
+    }
+
+    fun requestDeleteSession(item: SessionBrowserItem) {
+        _state.update { it.copy(deleteTarget = item, isDeleting = false) }
+    }
+
+    fun dismissDeleteSession() {
+        _state.update { it.copy(deleteTarget = null, isDeleting = false) }
+    }
+
+    fun confirmDeleteSession(onDeleted: (String) -> Unit = {}) {
+        val target = _state.value.deleteTarget ?: return
+        _state.update { it.copy(isDeleting = true, errorBanner = null) }
+        scope.launch {
+            try {
+                gatewayApi.deleteSessionPermanently(target.sessionId)
+                cacheStore.deleteSession(host.hostId, target.sessionId)
+                _state.update { cur ->
+                    cur.copy(
+                        deleteTarget = null,
+                        isDeleting = false,
+                        sessions = cur.sessions.filterNot { it.sessionId == target.sessionId },
+                        infoNotice = "Deleted \"${target.title}\".",
+                    )
+                }
+                onDeleted(target.sessionId)
+                refresh()
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        isDeleting = false,
+                        deleteTarget = null,
+                        errorBanner = t.message ?: "Failed to delete chat",
+                    )
+                }
+            }
+        }
+    }
+
     fun attemptForkSession(
         item: SessionBrowserItem,
         onForked: (String) -> Unit = {},
@@ -484,6 +571,7 @@ class SessionBrowserController(
                     "session_status",
                     "session_info_update",
                     "session_closed",
+                    "session_deleted",
                     "permission_requested",
                     "permission_resolved",
                     "question_requested",
@@ -514,6 +602,9 @@ internal fun CachedSession.toBrowserItem(): SessionBrowserItem = SessionBrowserI
     cwd = cwd,
     isLive = isLive,
     status = status,
+    isPinned = isPinned,
+    pinnedAt = pinnedAt,
+    isArchived = isArchived,
     stepCount = lastSeq.toInt(),
     modelId = modelId,
     thoughtLevel = thoughtLevel,
@@ -530,6 +621,9 @@ internal fun SessionListItemDto.toBrowserItem(titleSource: String = "acp"): Sess
         cwd = cwd,
         isLive = isLive,
         status = status,
+        isPinned = pinned,
+        pinnedAt = pinnedAt,
+        isArchived = archived,
         stepCount = stepCount,
         modelId = modelId,
         thoughtLevel = thoughtLevel,
@@ -550,6 +644,9 @@ internal fun SessionListItemDto.toCachedSession(
     addDirsJson = existing?.addDirsJson ?: "[]",
     status = status,
     isLive = isLive,
+    isPinned = pinned,
+    pinnedAt = pinnedAt ?: if (pinned) existing?.pinnedAt else null,
+    isArchived = archived,
     modelId = modelId ?: existing?.modelId,
     thoughtLevel = thoughtLevel ?: existing?.thoughtLevel,
     modeId = modeId ?: existing?.modeId,
@@ -580,6 +677,9 @@ internal fun SessionSnapshotDto.toCachedSession(
         addDirsJson = json.encodeToString(addDirs),
         status = status,
         isLive = isLive,
+        isPinned = pinned,
+        pinnedAt = pinnedAt ?: if (pinned) existing?.pinnedAt else null,
+        isArchived = archived,
         modelId = modelVal,
         thoughtLevel = thoughtVal,
         modeId = modeVal,
