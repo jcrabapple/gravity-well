@@ -37,6 +37,30 @@
             android:name=".service.KeepaliveActionReceiver"
             android:enabled="true"
             android:exported="false" />
+
+        <receiver
+            android:name=".widget.GeminiQuotaWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_gemini_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_gemini_quota_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.ThirdPartyQuotaWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_third_party_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_third_party_quota_info" />
+        </receiver>
     </application>
 
 </manifest>

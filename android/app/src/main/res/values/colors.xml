@@ -4,4 +4,19 @@
     <color name="chassis_void">#0E1117</color>
     <color name="stratum_base">#151A23</color>
     <color name="signal_cyan">#38BDF8</color>
+
+    <!-- Home screen quota widget palette -->
+    <color name="widget_surface">#151A23</color>
+    <color name="widget_inner_surface">#0E1117</color>
+    <color name="widget_border">#252D3D</color>
+    <color name="widget_track">#1E2533</color>
+    <color name="widget_button_bg">#1E2533</color>
+    <color name="widget_ink_primary">#EDF2F7</color>
+    <color name="widget_ink_secondary">#9BA7BA</color>
+    <color name="widget_ink_muted">#6E7B90</color>
+    <color name="widget_accent_gemini">#38BDF8</color>
+    <color name="widget_accent_third_party">#A78BFA</color>
+    <color name="widget_healthy">#34D399</color>
+    <color name="widget_warning">#F59E0B</color>
+    <color name="widget_critical">#F87171</color>
 </resources>

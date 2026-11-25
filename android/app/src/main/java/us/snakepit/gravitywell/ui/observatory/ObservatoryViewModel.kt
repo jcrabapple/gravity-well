@@ -36,6 +36,7 @@ class ObservatoryController(
     private val cacheStore: OfflineCacheStore,
     private val scope: CoroutineScope,
     private val json: Json = NetworkModule.defaultJson,
+    private val onUsagePersisted: (() -> Unit)? = null,
 ) {
     private val _state = MutableStateFlow(
         ObservatoryUiState(
@@ -102,6 +103,9 @@ class ObservatoryController(
             ),
         )
         _state.update { it.copy(cachedFetchedAt = nowIso) }
+        if (usage != null) {
+            onUsagePersisted?.invoke()
+        }
     }
 
     fun refreshAll(forceRefreshUsage: Boolean = false) {

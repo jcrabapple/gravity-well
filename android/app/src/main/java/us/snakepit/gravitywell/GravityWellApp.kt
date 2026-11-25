@@ -15,6 +15,7 @@ import us.snakepit.gravitywell.theme.GravityWellTheme
 import us.snakepit.gravitywell.ui.shell.GravityWellAdaptiveShell
 import us.snakepit.gravitywell.ui.shell.PendingDeepLink
 import us.snakepit.gravitywell.ui.shell.ShellController
+import us.snakepit.gravitywell.ui.shell.TopLevelDestination
 
 /**
  * App-scoped dependency holder lazily initialized from applicationContext so
@@ -78,6 +79,8 @@ class GravityWellShellViewModel(
 fun GravityWellApp(
     pendingDeepLink: PendingDeepLink? = null,
     onDeepLinkConsumed: () -> Unit = {},
+    requestedDestination: TopLevelDestination? = null,
+    onDestinationConsumed: () -> Unit = {},
     explicitController: ShellController? = null,
 ) {
     val context = LocalContext.current
@@ -92,6 +95,13 @@ fun GravityWellApp(
         if (pendingDeepLink != null) {
             controller.consumeDeepLink(pendingDeepLink)
             onDeepLinkConsumed()
+        }
+    }
+
+    LaunchedEffect(requestedDestination) {
+        if (requestedDestination != null) {
+            controller.selectDestination(requestedDestination)
+            onDestinationConsumed()
         }
     }
 

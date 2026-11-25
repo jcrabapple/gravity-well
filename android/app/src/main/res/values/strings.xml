@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Gravity Well</string>
+    <string name="widget_gemini_label">Gemini Quota</string>
+    <string name="widget_gemini_description">Monitor 5-hour and weekly quota remaining for Gemini models.</string>
+    <string name="widget_third_party_label">Claude &amp; GPT Quota</string>
+    <string name="widget_third_party_description">Monitor 5-hour and weekly quota remaining for third-party models.</string>
+    <string name="widget_refresh_cd">Refresh quota</string>
 </resources>

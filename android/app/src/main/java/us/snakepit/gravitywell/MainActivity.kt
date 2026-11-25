@@ -10,13 +10,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import kotlinx.coroutines.flow.MutableStateFlow
 import us.snakepit.gravitywell.service.AppForegroundTracker
 import us.snakepit.gravitywell.service.DeepLinkIntentQueue
 import us.snakepit.gravitywell.ui.shell.PendingDeepLink
+import us.snakepit.gravitywell.ui.shell.TopLevelDestination
 
 class MainActivity : ComponentActivity() {
 
     internal val deepLinkQueue = DeepLinkIntentQueue()
+    private val pendingDestination = MutableStateFlow<TopLevelDestination?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -31,6 +34,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val headDeepLink by deepLinkQueue.head.collectAsState()
+            val requestedDestination by pendingDestination.collectAsState()
             GravityWellApp(
                 pendingDeepLink = headDeepLink,
                 onDeepLinkConsumed = {
@@ -39,6 +43,8 @@ class MainActivity : ComponentActivity() {
                         deepLinkQueue.acknowledge(current)
                     }
                 },
+                requestedDestination = requestedDestination,
+                onDestinationConsumed = { pendingDestination.value = null },
             )
         }
     }
@@ -70,11 +76,18 @@ class MainActivity : ComponentActivity() {
             targetIntent.removeExtra(EXTRA_SESSION_ID)
             targetIntent.removeExtra(EXTRA_HOST_ID)
         }
+        val destRaw = targetIntent.getStringExtra(EXTRA_DESTINATION)?.trim()?.lowercase()
+        if (destRaw == DESTINATION_STATUS) {
+            pendingDestination.value = TopLevelDestination.OBSERVATORY
+            targetIntent.removeExtra(EXTRA_DESTINATION)
+        }
     }
 
     companion object {
         const val EXTRA_HOST_ID = "us.snakepit.gravitywell.extra.HOST_ID"
         const val EXTRA_SESSION_ID = "us.snakepit.gravitywell.extra.SESSION_ID"
+        const val EXTRA_DESTINATION = "us.snakepit.gravitywell.extra.DESTINATION"
+        const val DESTINATION_STATUS = "status"
 
         fun extractDeepLink(intent: Intent?): PendingDeepLink? {
             if (intent == null) return null

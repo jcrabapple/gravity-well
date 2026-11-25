@@ -42,6 +42,7 @@ import us.snakepit.gravitywell.ui.observatory.ObservatoryApi
 import us.snakepit.gravitywell.ui.observatory.ObservatoryController
 import us.snakepit.gravitywell.ui.sessions.SessionBrowserController
 import us.snakepit.gravitywell.ui.sessions.SessionSupplementaryApi
+import us.snakepit.gravitywell.widget.QuotaWidgetUpdater
 
 /**
  * Coordinates multi-host selection, shared OkHttp/WebSocket lifecycle, Session Browser,
@@ -260,8 +261,16 @@ class ShellController(
             cacheStore = cacheStore,
             scope = scope,
             json = json,
+            onUsagePersisted = {
+                boundAppContext?.let { ctx ->
+                    QuotaWidgetUpdater.renderAllWidgetsFromCache(ctx)
+                }
+            },
         )
         _observatoryController.value = observatory
+        boundAppContext?.let { ctx ->
+            QuotaWidgetUpdater.renderAllWidgetsFromCache(ctx)
+        }
 
         val deck = ControlDeckController(
             host = host,

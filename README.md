@@ -9,7 +9,7 @@ Gravity Well pairs a clean, dark-mode Jetpack Compose Android app (`android/`) w
 - **Chat-first Android UI:** 3-tab navigation (**Chats**, **Status**, **Settings**), right-aligned user bubbles, full-width streaming Markdown with code copy, collapsible Thinking and Tool cards with Unified/Word diff views, smart auto-scroll, and adaptive tablet two-pane layout (`>=600dp`).
 - **Non-blocking Approval & Question Cards:** Tool permissions (`Allow once`, `Always allow in project`, `Deny`) and `elicitation/create` questions dock directly above the composer so you can keep scrolling and reading diffs.
 - **Follow-up Queue & Offline Cache:** Enqueue follow-ups while Antigravity is running, reorder/edit/`Send now` without losing your current draft, `@file` autocomplete, `/` slash commands, magic-byte file attachments (`<=10 MiB`), SQLite offline cache, cursor replay/resync, and background approval alerts.
-- **Status & Ecosystem Controls:** Live usage quota gauges with reset countdowns, host vitals, active host session radar (`FLOCK`-verified), confirm-gated `agy update`, redacted log/crash viewer, MCP servers, plugins, custom agents, and revocable project permission rules.
+- **Status & Ecosystem Controls:** Live usage quota gauges with reset countdowns, home-screen **Gemini** and **Claude & GPT** quota widgets (5-hour & weekly remaining with one-tap refresh), host vitals, active host session radar (`FLOCK`-verified), confirm-gated `agy update`, redacted log/crash viewer, MCP servers, plugins, custom agents, and revocable project permission rules.
 
 ---
 
