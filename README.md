@@ -11,6 +11,16 @@ Gravity Well pairs a clean, dark-mode Jetpack Compose Android app (`android/`) w
 - **Follow-up Queue & Offline Cache:** Enqueue follow-ups while Antigravity is running, reorder/edit/`Send now` without losing your current draft, `@file` autocomplete, `/` slash commands, magic-byte file attachments (`<=10 MiB`), SQLite offline cache, cursor replay/resync, and background approval alerts.
 - **Status & Ecosystem Controls:** Live usage quota gauges with reset countdowns, home-screen **Gemini** and **Claude & GPT** quota widgets (5-hour & weekly remaining with one-tap refresh), host vitals, active host session radar (`FLOCK`-verified), confirm-gated `agy update`, redacted log/crash viewer, MCP servers, plugins, custom agents, and revocable project permission rules.
 
+## Screenshots
+
+| Chats | Live Chat & Approvals | Status & Quotas |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/chats.png" alt="Gravity Well Chats list" width="240" /> | <img src="docs/screenshots/chat.png" alt="Gravity Well live chat and approval card" width="240" /> | <img src="docs/screenshots/status.png" alt="Gravity Well Status and usage quotas" width="240" /> |
+
+| Settings & MCP | Gemini Quota Widget | Claude & GPT Widget |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/settings.png" alt="Gravity Well Settings and MCP servers" width="240" /> | <img src="docs/screenshots/widget-gemini.png" alt="Gemini Models home-screen quota widget" width="240" /> | <img src="docs/screenshots/widget-third-party.png" alt="Claude and GPT home-screen quota widget" width="240" /> |
+
 ---
 
 ## Repository Structure
